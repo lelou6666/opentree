@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
-from opentreewebapputil import get_opentree_services_method_urls
+import urllib2
+import socket
+from opentreewebapputil import (get_opentree_services_method_urls, 
+                                fetch_current_TNRS_context_names)
+
+default_view_dict = get_opentree_services_method_urls(request)
+default_view_dict['taxonSearchContextNames'] = fetch_current_TNRS_context_names(request)
 
 ### required - do no delete
 def user(): return dict(form=auth())
@@ -19,7 +25,7 @@ def index():
     #   http://opentree.com/opentree/argus/0,23,100,400/ottol@123456/Homo+sapiens
 
     # modify the normal view dictionary to include location+view hints from the URL
-    treeview_dict = get_opentree_services_method_urls(request)
+    treeview_dict = default_view_dict.copy()
     treeview_dict['viewer'] = 'argus'
     treeview_dict['domSource'] = ''
     treeview_dict['nodeID'] = ''
@@ -57,9 +63,8 @@ def index():
 
     # retrieve latest synthetic-tree ID (and its 'life' node ID)
     # TODO: Only refresh this periodically? Or only when needed for initial destination?
-    treeview_dict['draftTreeName'], treeview_dict['lifeNodeID'], treeview_dict['startingNodeID'] = fetch_current_synthetic_tree_ids()
-    treeview_dict['taxonSearchContextNames'] = fetch_current_TNRS_context_names()
-
+    treeview_dict['draftTreeName'], treeview_dict['startingNodeID'] = fetch_current_synthetic_tree_ids()
+    treeview_dict['taxonSearchContextNames'] = fetch_current_TNRS_context_names(request)
     return treeview_dict
 
 def error():
@@ -68,8 +73,7 @@ def error():
 def download_subtree():
     id_type = request.args(0)  # 'ottol-id' or 'node-id'
     node_or_ottol_id = request.args(1)
-    max_depth = request.args(2)
-    node_name = request.args(3)
+    node_name = request.args(2)
     import cStringIO
     import contenttype as c
     s=cStringIO.StringIO()
@@ -82,87 +86,81 @@ def download_subtree():
         method_dict = get_opentree_services_method_urls(request)
 
         # use the appropriate web service for this ID type
+        fetch_url = method_dict['getDraftSubtree_url']
         if id_type == 'ottol-id':
-            fetch_url = method_dict['getDraftTreeForOttolID_url']
-            fetch_args = {'ottId': node_or_ottol_id, 'maxDepth': max_depth}
+            fetch_args = {'ott_id': node_or_ottol_id}
         else:
-            fetch_url = method_dict['getDraftTreeForNodeID_url']
-            fetch_args = {'nodeID': node_or_ottol_id, 'maxDepth': max_depth}
+            fetch_args = {'node_id': node_or_ottol_id}
+        if fetch_url.startswith('//'):
+            # Prepend scheme to a scheme-relative URL
+            fetch_url = "https:%s" % fetch_url
 
         # apparently this needs to be a POST, or it just describes the API
         tree_response = fetch(fetch_url, data=fetch_args)
         tree_json = simplejson.loads( tree_response )
-        newick_text = tree_json['tree'].encode('utf-8');
+        newick_text = str(tree_json.get('newick', 'NEWICK_NOT_FOUND')).encode('utf-8');
         s.write( newick_text )
 
     except Exception, e:
         # throw 403 or 500 or just leave it
         if id_type == 'ottol-id':
-            s.write( u'ERROR - Unable to fetch the Newick subtree for ottol id "%s" (%s) with max depth %s:\n\n%s' % (node_or_ottol_id, node_name, max_depth, newick_text) )
+            s.write( u'ERROR - Unable to fetch the Newick subtree for ottol id "%s" (%s):\n\n%s' % (node_or_ottol_id, node_name, newick_text) )
         else:
-            s.write( u'ERROR - Unable to fetch the Newick subtree for node id "%s" (%s) with max depth %s:\n\n%s' % (node_or_ottol_id, node_name, max_depth, newick_text) )
+            s.write( u'ERROR - Unable to fetch the Newick subtree for node id "%s" (%s):\n\n%s' % (node_or_ottol_id, node_name, newick_text) )
 
     finally:
         response.headers['Content-Type'] = 'text/plain'
         if id_type == 'ottol-id':
-            response.headers['Content-Disposition'] = "attachment; filename=subtree-ottol-%s-%s.txt" % (node_or_ottol_id, node_name)
+            response.headers['Content-Disposition'] = "attachment; filename=subtree-ottol-%s-%s.tre" % (node_or_ottol_id, node_name)
         else:
-            response.headers['Content-Disposition'] = "attachment; filename=subtree-node-%s-%s.txt" % (node_or_ottol_id, node_name)
+            response.headers['Content-Disposition'] = "attachment; filename=subtree-node-%s-%s.tre" % (node_or_ottol_id, node_name)
         return s.getvalue()
 
 def fetch_current_synthetic_tree_ids():
     try:
         # fetch the latest IDs as JSON from remote site
-        from gluon.tools import fetch
         import simplejson
 
         method_dict = get_opentree_services_method_urls(request)
         fetch_url = method_dict['getDraftTreeID_url']
+        if fetch_url.startswith('//'):
+            # Prepend scheme to a scheme-relative URL
+            fetch_url = "https:%s" % fetch_url
 
-        fetch_args = {'startingTaxonName': "cellular organisms"}
-
+        fetch_args = {'startingTaxonOTTId': ""}
         # this needs to be a POST (pass fetch_args or ''); if GET, it just describes the API
-        ids_response = fetch(fetch_url, data=fetch_args)
+        # N.B. that gluon.tools.fetch() can't be used here, since it won't send "raw" JSON data as treemachine expects
+        req = urllib2.Request(url=fetch_url, data=simplejson.dumps(fetch_args), headers={"Content-Type": "application/json"}) 
+        ids_response = urllib2.urlopen(req).read()
 
         ids_json = simplejson.loads( ids_response )
-        draftTreeName = ids_json['draftTreeName'].encode('utf-8')
-        lifeNodeID = ids_json['lifeNodeID'].encode('utf-8')
-        # IF we get a separate starting node ID, use it; else we'll start at 'life'
-        startingNodeID = ids_json.get('startingNodeID', lifeNodeID).encode('utf-8')
-        return (draftTreeName, lifeNodeID, startingNodeID)
-
-    except Exception, e:
-        # throw 403 or 500 or just leave it
-        return ('ERROR', e.message, 'NO_STARTING_NODE_ID')
-
-def fetch_current_TNRS_context_names():
-    try:
-        # fetch the latest contextName values as JSON from remote site
-        from gluon.tools import fetch
-        import simplejson
-
-        method_dict = get_opentree_services_method_urls(request)
-        fetch_url = method_dict['getContextsJSON_url']
-        # as usual, this needs to be a POST (pass empty fetch_args)
-        contextnames_response = fetch(fetch_url, data='')
-
-        contextnames_json = simplejson.loads( contextnames_response )
-        # start with LIFE group (incl. 'All life'), and add any other ordered suggestions
-        ordered_group_names = unique_ordered_list(['LIFE','PLANTS','ANIMALS'] + [g for g in contextnames_json])
-        context_names = [ ]
-        for gname in ordered_group_names:
-            # allow for eventual removal or renaming of expected groups
-            if gname in contextnames_json:
-                context_names += [n.encode('utf-8') for n in contextnames_json[gname] ]
-
-        # draftTreeName = ids_json['draftTreeName'].encode('utf-8')
-        return (context_names)
+        draftTreeName = str(ids_json['draftTreeName']).encode('utf-8')
+        # Try to be compatible with different versions of treemachine
+        startNodeID = None
+        if 'startingNodeID' in ids_json:
+            startNodeID = str(ids_json['startingNodeID']).encode('utf-8')
+        elif 'startNodeID' in ids_json:
+            startNodeID = str(ids_json['startNodeID']).encode('utf-8')
+        return (draftTreeName, startNodeID)
 
     except Exception, e:
         # throw 403 or 500 or just leave it
         return ('ERROR', e.message)
 
-def unique_ordered_list(seq):
-    seen = set()
-    seen_add = seen.add
-    return [ x for x in seq if x not in seen and not seen_add(x)]
+# provide support for phylopic searches and image display via HTTPS
+def phylopic_proxy():
+    phylopic_url = request.env.web2py_original_uri.split('phylopic_proxy')[1]
+    # prepend the real domain, using HTTP, and return the response
+    phylopic_url = 'http://phylopic.org/%s' % phylopic_url
+    try:
+        req = urllib2.Request(url=phylopic_url) 
+        resp = urllib2.urlopen(req, timeout=10).read()
+        # N.B. timeout value is in seconds!
+        return resp
+    except urllib2.URLError, e:
+        # this includes possible timeout from urllib2
+        raise HTTP(503, 'The attempt to fetch an image from phylopic failed (probable timeout)')
+    except socket.timeout, e:
+        # report underlying socket timeouts!
+        raise HTTP(504, 'The attempt to fetch an image from phylopic timed out')
+

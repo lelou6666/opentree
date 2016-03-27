@@ -1,10 +1,49 @@
+/*    
+@licstart  The following is the entire license notice for the JavaScript code in this page. 
+
+    Copyright (c) 2013, Jim Allman
+
+    All rights reserved.
+
+    Redistribution and use in source and binary forms, with or without
+    modification, are permitted provided that the following conditions are met:
+
+    Redistributions of source code must retain the above copyright notice, this
+    list of conditions and the following disclaimer.
+
+    Redistributions in binary form must reproduce the above copyright notice,
+    this list of conditions and the following disclaimer in the documentation
+    and/or other materials provided with the distribution.
+
+    THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+    AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+    IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+    DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+    FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+    DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+    SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+    CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+    OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+    OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+@licend  The above is the entire license notice for the JavaScript code in this page.
+*/
+
 /*
  * Client-side behavior for the Open Tree curation home page and personalized dashboard
  *
- * This uses the OTOL API to fetch and store studies and trees remotely. In
+ * This uses the Open Tree API to fetch and store studies and trees remotely. In
  * this initial version, we'll load metadata for all studies in the system,
  * then use client-side code to filter and sort them.
  */
+
+/*
+ * Subscribe to history changes (adapted from History.js boilerplate) 
+ */
+
+var History = window.History; // Note: capital H refers to History.js!
+// History.js can be disabled for HTML4 browsers, but this should not be the case for opentree!
+
 
 // these variables should already be defined in the main HTML page
 var findAllStudies_url;
@@ -13,8 +52,84 @@ var viewOrEdit;
 // working space for parsed JSON objects (incl. sub-objects)
 var viewModel;
 
+/* Use history plugin to track moves from tab to tab, single-tree popup, others? */
+
+var listFilterDefaults; // defined in main page, for a clean initial state
+
+if ( History && History.enabled ) {
+    
+    var handleChangingState = function() {
+        if (!viewModel) {
+            // try again soon (waiting for the study list to load)
+            setTimeout( handleChangingState, 50 );
+            return;
+        }
+        var State = History.getState(); // Note: We are using History.getState() instead of event.state
+        ///History.log(State.data, State.title, State.url);
+
+        // Extract our state vars from State.url (not from State.data) for equal
+        // treatment of initial URLs.
+        var activeFilter = viewModel.listFilters.STUDIES;
+        var filterDefaults = listFilterDefaults.STUDIES;
+        // assert any saved filter values
+        for (var prop in activeFilter) {
+            if (prop in State.data) {
+                activeFilter[prop]( State.data[prop] );
+            } else {
+                // (re)set to its default value
+                activeFilter[prop]( filterDefaults[prop] );
+            }
+        }
+
+        initialState = null;  // clear this to unlock history for other changes
+    };
+
+    // bind to statechange event
+    History.Adapter.bind(window, 'statechange', handleChangingState);
+}
+
+function updateListFiltersWithHistory() {
+    // capture changing list filters in browser history
+    // N.B. This is triggered when filter is updated programmatically
+    // TODO: Try not to capture all keystrokes, or trivial changes?
+    if (History && History.enabled) {
+        if (initialState) {
+            // wait until initial state has been applied!
+            return;
+        }
+        var oldState = History.getState().data;
+
+        // Determine which list filter is active (currently based on tab)
+        // N.B. There's currently just one filter per tab (Trees, Files, OTU Mapping).
+        var activeFilter = viewModel.listFilters.STUDIES;
+        var filterDefaults = listFilterDefaults.STUDIES;
+        var newState = { };
+        var newQSValues = { };
+        for (prop in activeFilter) {
+            newState[prop] = ko.unwrap(activeFilter[prop]);
+            // Hide default filter settings, for simpler URLs
+            if (newState[prop] !== filterDefaults[prop]) {
+                newQSValues[prop] = ko.unwrap(activeFilter[prop]);
+            }
+        }
+        //var newQueryString = '?'+ encodeURIComponent($.param(newQSValues));
+        var newQueryString = '?'+ $.param(newQSValues);
+        History.pushState( newState, (window.document.title), newQueryString );
+    }
+}
+
 $(document).ready(function() {
+    bindHelpPanels();
     loadStudyList();
+    
+    // NOTE that our initial state is set in the main page template, so we 
+    // can build it from incoming URL in web2py. Try to recapture this state,
+    // ideally through manipulating history.
+    if (History && History.enabled) {
+        // "formalize" the current state with an object
+        initialState.nudge = new Date().getTime();
+        History.replaceState(initialState, window.document.title, window.location.href);
+    }
 });
 
 function loadStudyList() {
@@ -89,7 +204,7 @@ function loadStudyList() {
     */
 
     // use oti (study indexing service) to get the complete list
-    $('#ajax-busy-bar').show();
+    showModalScreen("Loading study list...", {SHOW_BUSY_BAR:true});
 
     $.ajax({
         type: 'POST',
@@ -101,13 +216,15 @@ function loadStudyList() {
 
             // report errors or malformed data, if any
             if (textStatus !== 'success') {
-                showErrorMessage('Sorry, there was an error loading this study.');
+                showErrorMessage('Sorry, there was an error loading the list of studies.');
                 return;
             }
             if (typeof data !== 'object' || !($.isArray(data))) {
-                showErrorMessage('Sorry, there is a problem with the study data.');
+                showErrorMessage('Sorry, there is a problem with the study-list data.');
                 return;
             }
+            
+            sortStudiesByDOI(data);
 
             viewModel = data; /// ko.mapping.fromJS( fakeStudyList );  // ..., mappingOptions);
 
@@ -128,10 +245,12 @@ function loadStudyList() {
             viewModel.filteredStudies = ko.computed(function() {
                 // filter raw tree list, returning a
                 // new paged observableArray
-                updateClearSearchWidget( '#study-list-filter' );
+                updateClearSearchWidget( '#study-list-filter', viewModel.listFilters.STUDIES.match );
+                updateListFiltersWithHistory();
 
                 var match = viewModel.listFilters.STUDIES.match(),
-                    matchPattern = new RegExp( $.trim(match), 'i' );
+                    matchPattern = new RegExp( $.trim(match), 'i' ),
+                    wholeWordMatchPattern = new RegExp( '\\b'+ $.trim(match) +'\\b', 'i' );
                 var workflow = viewModel.listFilters.STUDIES.workflow();
                 var order = viewModel.listFilters.STUDIES.order();
 
@@ -140,6 +259,7 @@ function loadStudyList() {
                     viewModel, 
                     function(study) {
                         // match entered text against pub reference (author, title, journal name, DOI)
+                        var studyID = study['ot:studyId'];
                         var pubReference = study['ot:studyPublicationReference'];
                         var pubURL = study['ot:studyPublication'];
                         var pubYear = study['ot:studyYear'];
@@ -147,9 +267,9 @@ function loadStudyList() {
                         var curator = study['ot:curatorName'];
                         var clade = ('ot:focalCladeOTTTaxonName' in study && 
                                      ($.trim(study['ot:focalCladeOTTTaxonName']) !== "")) ?
-                                        study['ot:curatorName'] :
-                                        study['ot:focalClade'];
-                        if (!matchPattern.test(pubReference) && !matchPattern.test(pubURL) && !matchPattern.test(pubYear) && !matchPattern.test(curator) && !matchPattern.test(tags) && !matchPattern.test(clade)) {
+                                        study['ot:focalCladeOTTTaxonName'] :  // use mapped name if found
+                                        study['ot:focalClade']; // fall back to numeric ID (should be very rare)
+                        if (!wholeWordMatchPattern.test(studyID) && !matchPattern.test(pubReference) && !matchPattern.test(pubURL) && !matchPattern.test(pubYear) && !matchPattern.test(curator) && !matchPattern.test(tags) && !matchPattern.test(clade)) {
                             return false;
                         }
                         // check for filtered workflow state
@@ -192,9 +312,35 @@ function loadStudyList() {
                         break;
 
                     case 'Oldest publication first':
-                        filteredList.sort(function(a,b) { 
+                        filteredList.sort(function(a,b) {
                             if (a['ot:studyYear'] === b['ot:studyYear']) return 0;
                             return (a['ot:studyYear'] > b['ot:studyYear'])? 1 : -1;
+                        });
+                        break;
+
+                    case 'Sort by primary author':
+                        filteredList.sort(function(a,b) {
+                            var aRef = $.trim(a['ot:studyPublicationReference']);
+                            var bRef = $.trim(b['ot:studyPublicationReference']);
+                            if (aRef.localeCompare) {
+                                return aRef.localeCompare(bRef);
+                            }
+                            // fallback do dumb alpha-sort on older browsers
+                            if (aRef === bRef) return 0;
+                            return (aRef > bRef) ? 1 : -1;
+                        });
+                        break;
+
+                    case 'Sort by primary author (reversed)':
+                        filteredList.sort(function(a,b) {
+                            var bRef = $.trim(b['ot:studyPublicationReference']);
+                            var aRef = $.trim(a['ot:studyPublicationReference']);
+                            if (bRef.localeCompare) {
+                                return bRef.localeCompare(aRef);
+                            }
+                            // fallback do dumb alpha-sort on older browsers
+                            if (aRef === bRef) return 0;
+                            return (aRef < bRef) ? 1 : -1;
                         });
                         break;
 
@@ -230,20 +376,56 @@ function loadStudyList() {
                 return viewModel._filteredStudies;
             }); // END of filteredStudies
                     
-            ko.applyBindings(viewModel);
+            var listHolder = $('#study-list-container')[0];
+            ko.applyBindings(viewModel, listHolder);
 
-            $('#ajax-busy-bar').hide();
+            hideModalScreen();
         }
     });
 }
 
+/* gather any duplicate studies (with same DOI) */
+var studiesByDOI = {};
+function sortStudiesByDOI(studyList) {
+    studiesByDOI = {};
+    $.each( studyList, function(i, study) {
+        var studyID = study['ot:studyId'];
+        var studyDOI = ('ot:studyPublication' in study) ? study['ot:studyPublication'] : "";
+        if (studyDOI !== "") {
+            if ('studyDOI' in studiesByDOI) {
+                studiesByDOI[ studyDOI ].push( studyID );
+            } else {
+                studiesByDOI[ studyDOI ] = [ studyID ];
+            }
+        }
+    });
+    // remove all but the entries with actual dupes
+    for (var doi in studiesByDOI) {
+        if (studiesByDOI[ doi ].length < 2) {
+            delete studiesByDOI[doi];
+        }
+    }
+}
+function getDuplicateStudyMarker(study) {
+    var studyDOI = ('ot:studyPublication' in study) ? study['ot:studyPublication'] : "";
+    if (studyDOI !== "") {
+        var dupes = studiesByDOI[ studyDOI ];
+        if (dupes && dupes.length > 1) {
+            return '&nbsp; <a href="#" onclick="filterByDOI(\''+ studyDOI +'\'); return false;" style="font-weight: bold; color: #b94a48;" title="CLick to see all studies with this DOI">[DUPLICATE STUDY]</a'+'>';
+        }
+    }
+    return '';
+}
 
 function getViewOrEditLinks(study) {
     var html = "";
 
+    /* Send authorized users straight to Edit page?
     var viewOrEditURL = (viewOrEdit === 'EDIT') ?
         '/curator/study/edit/'+ study['ot:studyId'] : 
         '/curator/study/view/'+ study['ot:studyId'];
+    */
+    var viewOrEditURL = '/curator/study/view/'+ study['ot:studyId'];
 
     var fullRef = study['ot:studyPublicationReference'];
     if (fullRef) {
@@ -254,6 +436,7 @@ function getViewOrEditLinks(study) {
         // nothing to toggle
         html += '<a href="'+ viewOrEditURL +'">(Untitled study)</a>';
     }
+    html += getDuplicateStudyMarker(study);
 
     return html;
 }
@@ -295,7 +478,7 @@ function getFocalCladeLink(study) {
         return '<span style="color: #ccc;">'+ cladeName +'</span>';
     }
 
-    return '<a href="#" onclick="filterByClade(\''+ ottID +'\'); return false;"'+'>'+ cladeName +'</a'+'>';
+    return '<a href="#" onclick="filterByClade(\''+ cladeName +'\'); return false;"'+'>'+ cladeName +'</a'+'>';
 }
 function getPubLink(study) {
     var urlNotFound = false;
@@ -319,17 +502,6 @@ function getSuggestedActions(study) {
     return '<a href="#"'+'>'+ study.nextActions()[0] +'</a'+'>';
 }
 */
-
-function getPageNumbers( pagedArray ) {
-    // Generates an array of display numbers (1-based) for use with Knockout's
-    // foreach binding. Let's build this with one-based values for easy display.
-    var pageNumbers = [ ];
-    var howManyPages = Math.ceil(pagedArray().length / pagedArray.pageSize);
-    for (var i = 1; i <= howManyPages; i++) {
-        pageNumbers.push( i );
-    }
-    return pageNumbers;
-}
 
 function toggleStudyDetails( clicked ) {
     var $toggle = $(clicked);
@@ -364,4 +536,8 @@ function filterByClade( cladeName ) {
 function filterByTag( tag ) {
     // replace the filter text with this clade name
     viewModel.listFilters.STUDIES.match( tag );
+}
+function filterByDOI( doi ) {
+    // replace the filter text with this clade name
+    viewModel.listFilters.STUDIES.match( doi );
 }

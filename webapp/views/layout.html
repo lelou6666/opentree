@@ -1,14 +1,62 @@
 <!DOCTYPE html>
+{{
+from applications.opentree.modules.opentreewebapputil import get_user_display_name, get_conf, get_domain_banner_text, get_domain_banner_hovertext, get_currently_deployed_opentree_branch
+}}
+
+<script src="{{=URL('static','js/webapp-helpers.js')}}"></script>
+
 <html lang="en">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{=response.title or request.application}}</title>
     {{response.files.append(URL('static','css/bootstrap.css'))}}
-    <style type="text/css">
-        /* TODO: add page-specific styles here */
-    </style>
     {{response.files.append(URL('static','css/bootstrap-responsive.css'))}}
+    <style type="text/css">
+        // Fix for broken submenus on mobile devices
+        .dropdown-backdrop{
+            position: static !important;
+        }
+    </style>
+
+    <script type="text/javascript">
+        /*
+        @licstart  The following is the entire license notice for the JavaScript code in this page.
+
+        Copyright (c) 2013, Jonathan Rees
+        Copyright (c) 2013, Mark Holder
+        Copyright (c) 2013, Jim Allman
+        Copyright (c) 2013, Stephen Smith
+
+        All rights reserved.
+
+        Redistribution and use in source and binary forms, with or without
+        modification, are permitted provided that the following conditions are met:
+
+        Redistributions of source code must retain the above copyright notice, this
+        list of conditions and the following disclaimer.
+
+        Redistributions in binary form must reproduce the above copyright notice,
+        this list of conditions and the following disclaimer in the documentation
+        and/or other materials provided with the distribution.
+
+        THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+        AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+        IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+        DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+        FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+        DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+        SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+        CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+        OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+        OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+        @licend  The above is the entire license notice for the JavaScript code in this page.
+
+        Licensing for third-party and linked JavaScript can be found in the
+        'License information' page linked from the footer.
+        */
+    </script>
 
     <!-- HTML5 shim, for IE6-8 support of HTML5 elements -->
     <!--[if lt IE 9]>
@@ -19,7 +67,7 @@
     {{response.files.append(URL('static','plugin_layouts/superfish.js'))}}
     <!-- css for comments -->
     {{response.files.append(URL('static','plugin_localcomments/css/localcomments.css'))}}
-    
+
     <!-- js dependencies for argus -->
     {{if globals().get('treemachine_domain',False):}}  <!-- TODO: add a proper test here, to omit while in /opentree/appadmin -->
     <script type="text/javascript">
@@ -29,14 +77,15 @@
         var getDraftTreeID_url = "{{=getDraftTreeID_url}}";
         var getSyntheticTree_url = "{{=getSyntheticTree_url}}";
         var getSourceTree_url = "{{=getSourceTree_url}}";
-        var getConflictTaxJsonAltRel_url = "{{=getConflictTaxJsonAltRel_url}}";
-        var getDraftTreeForOttolID_url = "{{=getDraftTreeForOttolID_url}}";
-        var getDraftTreeForNodeID_url = "{{=getDraftTreeForNodeID_url}}";
-        var doTNRSForNames_url = "{{=doTNRSForNames_url}}";
+        var getDraftSubtree_url = "{{=getDraftSubtree_url}}";
+        var doTNRSForAutocomplete_url = "{{=doTNRSForAutocomplete_url}}";
         var getNodeIDForOttolID_url = "{{=getNodeIDForOttolID_url}}";
-        var getJSONFromNode_url = "{{=getJSONFromNode_url}}";
+        var singlePropertySearchForStudies_url = "{{=singlePropertySearchForStudies_url}}";
     </script>
     {{pass}}
+
+    {{# JSON support for older browsers (esp. IE7)}}
+    {{response.files.append(URL('static','js/json2.js'))}}
     {{response.files.append(URL('static','js/argus/raphael-min.js'))}}
     {{response.files.append(URL('static','js/argus/drawtree.js'))}}
 
@@ -60,10 +109,235 @@
     {{response.files.append(URL('static','js/bootstrap-collapse.js'))}}
     {{response.files.append(URL('static','js/bootstrap-carousel.js'))}}
     {{response.files.append(URL('static','js/bootstrap-typeahead.js'))}}
-    
+
+    <!-- js improved date parsing & formatting -->
+    {{response.files.append(URL('static','js/moment.min.js'))}}
+
     <!-- support for web2py AJAX (incl. link to static/js/jquery.js) -->
     {{include 'web2py_ajax.html'}}
-    
+
+    <script type="text/javascript">
+        // some behavior should be on *every* page (after jQuery)
+        function toggleServerDetailsPopup() {
+            var $detailsBox = $('#server-details');
+            $detailsBox.toggle();
+            if ($detailsBox.is(':visible')) {
+                $('body').animate({scrollTop: parseInt($detailsBox.offset().top) });
+            }
+        }
+
+        /* Sensible autocomplete behavior requires the use of timeouts
+         * and sanity checks for unchanged content, etc.
+         */
+        clearTimeout(searchTimeoutID);  // in case there's a lingering search from last page!
+        var searchTimeoutID = null;
+        var searchDelay = 1000; // milliseconds
+        var hopefulSearchName = null;
+        function setTaxaSearchFuse(e) {
+            if (searchTimeoutID) {
+                // kill any pending search, apparently we're still typing
+                clearTimeout(searchTimeoutID);
+            }
+            // reset the timeout for another n milliseconds
+            searchTimeoutID = setTimeout(searchForMatchingTaxa, searchDelay);
+
+            /* If the last key pressed was the ENTER key, stash the current (trimmed)
+             * string and auto-jump if it's a valid taxon name.
+             */
+            if (e.type === 'keyup') {
+                switch (e.which) {
+                    case 13:
+                        hopefulSearchName = $('input[name=taxon-search]').val().trim();
+                        jumpToExactMatch();  // use existing menu, if found
+                        break;
+                    case 17:
+                        // do nothing (probably a second ENTER key)
+                        break;
+                    case 39:
+                    case 40:
+                        // down or right arrow should try to tab to first result
+                        $('#search-results a:eq(0)').focus();
+                        break;
+                    default:
+                        hopefulSearchName = null;
+                }
+            } else {
+                hopefulSearchName = null;
+            }
+        }
+
+        function makeSafeForWeb2pyURL(str) {
+            // For example, "Odynerus o'neili" becomes "Odynerus-oneili"
+            // remove (elide) apostrophes rather than replace with '-'
+            str = str.replace(/['"]/g, '');
+            // replace other characters considered unsafe (blocked) by web2py in a URL
+            return str.replace(/[:(), .']+/g, '-').replace(/[\[\]\+]+/g,'');
+        }
+        function historyStateToURL( stateObj ) {
+            var safeNodeName = null;
+            if (stateObj.nodeName) {
+                safeNodeName = makeSafeForWeb2pyURL(stateObj.nodeName);
+            }
+            return '/opentree'+ (stateObj.viewer ? '/'+stateObj.viewer : '') +'/'+ stateObj.domSource +'@'+ stateObj.nodeID + (safeNodeName ? '/'+ safeNodeName : '');
+        }
+
+        var showingResultsForSearchText = '';
+        var showingResultsForSearchContextName = '';
+        function searchForMatchingTaxa() {
+            // clear any pending search timeout and ID
+            clearTimeout(searchTimeoutID);
+            searchTimeoutID = null;
+
+            var $input = $('input[name=taxon-search]');
+            var searchText = $input.val().trimLeft();
+
+            if (searchText.length === 0) {
+                $('#search-results').html('');
+                if (typeof snapViewerFrameToMainTitle === 'function') snapViewerFrameToMainTitle();
+                return false;
+            } else if (searchText.length < 2) {
+                $('#search-results').html('<li class="disabled"><a><span class="text-error">Enter two or more characters to search</span></a></li>');
+                $('#search-results').dropdown('toggle');
+
+                if (typeof snapViewerFrameToMainTitle === 'function') snapViewerFrameToMainTitle();
+                return false;
+            }
+
+            // groom trimmed text based on our search rules
+            var searchContextName = $('select[name=taxon-search-context]').val();
+
+            // is this unchanged from last time? no need to search again..
+            if ((searchText == showingResultsForSearchText) && (searchContextName == showingResultsForSearchContextName)) {
+                ///console.log("Search text and context UNCHANGED!");
+                return false;
+            }
+
+            // stash these to use for later comparison (to avoid redundant searches)
+            var queryText = searchText; // trimmed above
+            var queryContextName = searchContextName;
+
+            // proper version queries treemachine API
+            // $ curl -X POST http://opentree-dev.bio.ku.edu:7476/db/data/ext/TNRS/graphdb/doTNRSForNames -H "Content-Type: Application/json" -d '{"queryString":"Drosophila","contextName":"Fungi"}'
+            $('#search-results').html('<li class="disabled"><a><span class="text-warning">Search in progress...</span></a></li>');
+            $('#search-results').dropdown('toggle');
+            if (typeof snapViewerFrameToMainTitle === 'function') snapViewerFrameToMainTitle();
+
+            $.ajax({
+                url: doTNRSForAutocomplete_url,  // NOTE that actual server-side method name might be quite different!
+                type: 'POST',
+                dataType: 'json',
+                data: JSON.stringify({
+                    "queryString": searchText,
+                    "contextName": searchContextName
+                }),  // data (asterisk required for completion suggestions)
+                crossDomain: true,
+                contentType: 'application/json',
+                success: function(data) {    // JSONP callback
+                    // stash the search-text used to generate these results
+                    showingResultsForSearchText = queryText;
+                    showingResultsForSearchContextName = queryContextName;
+
+                    $('#search-results').html('');
+                    var maxResults = 100;
+                    var visibleResults = 0;
+                    /*
+                     * The returned JSON 'data' is a simple list of objects. Each object is a matching taxon (or name?)
+                     * with these properties:
+                     *      ottId   // taxon ID in OTT taxonomic tree
+                     *      nodeId  // ie, neo4j node ID
+                     *      exact   // matches the entered text exactly? T/F
+                     *      name    // taxon name
+                     *      higher  // points to a genus or higher taxon? T/F
+                     */
+                    if (data && data.length && data.length > 0) {
+                        // sort results to show exact match(es) first, then higher taxa, then others
+                        // initial sort on higher taxa (will be overridden by exact matches)
+                        data.sort(function(a,b) {
+                            if (a.higher === b.higher) return 0;
+                            if (a.higher) return -1;
+                            if (b.higher) return 1;
+                        });
+                        // final sort on exact matches (overrides higher taxa)
+                        data.sort(function(a,b) {
+                            if (a.exact === b.exact) return 0;
+                            if (a.exact) return -1;
+                            if (b.exact) return 1;
+                        });
+
+                        // show all sorted results, up to our preset maximum
+                        var matchingNodeIDs = [ ];  // ignore any duplicate results (point to the same taxon)
+                        for (var mpos = 0; mpos < data.length; mpos++) {
+                            if (visibleResults >= maxResults) {
+                                break;
+                            }
+                            var match = data[mpos];
+                            var matchingName = match.name;  // N.B. this will be its unique name, if found
+                            var matchingID = match.ottId;
+                            if ($.inArray(matchingID, matchingNodeIDs) === -1) {
+                                // we're not showing this yet; add it now
+                                $('#search-results').append(
+                                    '<li><a href="'+ matchingID +'" tabindex="'+ (mpos+2) +'">'+ matchingName +'</a></li>'
+                                );
+                                matchingNodeIDs.push(matchingID);
+                                visibleResults++;
+                            }
+                        }
+
+                        $('#search-results a')
+                            .click(function(e) {
+                                // suppress normal dropdown logic and jump to link normally (TODO: Why is this needed?)
+                                e.stopPropagation();
+                            })
+                            .each(function() {
+                                var $link = $(this);
+                                //// WAS constructed literal ('/opentree/'+ "ottol" +'@'+ itsNodeID +'/'+ itsName)
+                                var safeURL = historyStateToURL({
+                                    nodeID: $link.attr('href'),
+                                    domSource: 'ottol',
+                                    nodeName: makeSafeForWeb2pyURL($link.text()),
+                                    viewer: 'argus'
+                                });
+                                $link.attr('href', safeURL);
+                            });
+                        $('#search-results').dropdown('toggle');
+
+                        jumpToExactMatch();
+                    } else {
+                        $('#search-results').html('<li class="disabled"><a><span class="muted">No results for this search</span></a></li>');
+                        $('#search-results').dropdown('toggle');
+                    }
+                    if (typeof snapViewerFrameToMainTitle === 'function') snapViewerFrameToMainTitle();
+                }
+            });
+
+            return false;
+        }
+
+        function jumpToExactMatch() {
+            // if the user hit the ENTER key, and there's an exact match, apply it automatically
+            if (hopefulSearchName) {
+                $('#search-results a').each(function() {
+                    var $link = $(this);
+                    if ($link.text().toLowerCase() === hopefulSearchName.toLowerCase()) {
+                        window.location = $link.attr('href');
+                        return false;
+                    }
+                });
+            }
+        }
+
+        $(document).ready(function() {
+            // taxon search on remote site (using JSONP to overcome the same-origin policy)
+            $('input[name=taxon-search]').unbind('keyup change').bind('keyup change', setTaxaSearchFuse );
+            $('select[name=taxon-search-context]').unbind('change').bind('change', searchForMatchingTaxa );
+            $('#taxon-search-form').unbind('submit').submit(function() {
+                searchForMatchingTaxa();
+                return false;
+            });
+        });
+
+    </script>
+
     {{
     # using sidebars need to know what sidebar you want to use
     left_sidebar_enabled = globals().get('left_sidebar_enabled',False)
@@ -80,9 +354,12 @@
     -->
                                    <link rel="shortcut icon" href="/favicon.ico">
   </head>
-  
+
 <body>
-  <div class="navbar navbar-inverse navbar-static-top">
+{{ if get_domain_banner_text(request): }}
+  <div class="ribbon-banner" title="{{= get_domain_banner_hovertext(request) }}">{{= get_domain_banner_text(request) }}</div>
+{{ pass }}
+  <div class="navbar navbar-inverse navbar-static-top" role="navigation">
     <div class="navbar-inner">
       <div class="container">
 
@@ -94,44 +371,44 @@
         </a>
 
         <a class="brand" href="/opentree" style="font-weight: 400; color: #bbb; padding-right: 10px;">
-            <img style="margin: -12px 4px -8px -2px;" src="/opentree/static/images/mini-otol-logo.png">
+            <img style="margin: -12px 4px -8px -2px;" src="/opentree/static/images/mini-opentree-logo.png">
             Open Tree of Life
         </a>
 
         <div class="nav-collapse collapse">
-            <ul class="nav">
-              <li class="active"><a href="{{= URL('default','index') }}">Home</a></li>
+                    <ul class="nav">
+              <!--<li class="active"><a href="{{= URL('default','index') }}">Home</a></li>-->
+              <li><a href="/curator">Add / browse trees</a></li>
+              <li><a href="{{= URL('contact','index') }}">Feedback</a></li>
+              <li><a href="http://blog.opentreeoflife.org/" target="_blank">Blog</a></li>
               <li class="dropdown">
-                  <a href="{{= URL('about','open-tree-of-life') }}" class="dropdown-toggle" data-toggle="dropdown">
+                <a href="{{= URL('about','open-tree-of-life') }}" class="dropdown-toggle" data-toggle="dropdown">
                       About  <b class="caret"></b>
                   </a>
-                  <ul class="dropdown-menu">
-                      <li><a href="{{= URL('about','open-tree-of-life') }}">Open Tree of Life</a>
-                      <li><a href="{{= URL('about','the-synthetic-tree') }}">The synthetic tree</a>
-                      <li><a href="{{= URL('about','the-source-tree-manager') }}">The source tree manager</a>
-                      <li><a href="{{= URL('about','developer-resources') }}">Developer resources</a>
-                      <li><a href="{{= URL('about','credits') }}">Credits</a></li>
-                  </ul>
+                <ul class="dropdown-menu">
+                <li><a href="{{= URL('about','open-tree-of-life') }}">Open Tree of Life</a></li>
+                      <li><a href="{{= URL('about','references') }}">Bibliographic references</a></li>
+                      <li><a href="{{= URL('about', 'progress') }}">Progress</a></li>
+                      <li><a href="{{= URL('about', 'synthesis-release') }}">Latest synthesis release</a></li>
+                      <li><a href="{{= URL('about', 'taxonomy-version') }}">Latest taxonomy release</a></li>
+                      <!--
+                      <li><a href="{{= URL('about','the-source-tree-manager') }}">The source tree manager</a></li>
+                      -->
+                      <li><a href="https://github.com/OpenTreeOfLife/opentree/wiki/Open-Tree-of-Life-APIs" target="_blank">API documentation</a></li>
+                      <li><a href="{{= URL('about','developer-resources') }}">Developer resources</a></li>
+                      <li><a href="{{= URL('about','licenses') }}">Licenses</a></li>
+                </ul>
               </li>
-              <li class="dropdown">
-                  <a href="http://www.reelab.net/phylografter" class="dropdown-toggle" data-toggle="dropdown">
-                      Source trees  <b class="caret"></b>
-                  </a>
-                  <ul class="dropdown-menu">
-                      <li><a href="/curator">OpenTree Curator (under construction)</a>
-                      <li><a href="http://www.reelab.net/phylografter">Phylografter</a></li>
-                  </ul>
-              </li>
-              <li><a href="{{= URL('subtrees','index') }}">Subtrees</a></li>
-              <li><a href="{{= URL('contact','index') }}">Contact</a></li>
             </ul>
             <form id="taxon-search-form" class="navbar-search pull-right" autocomplete="off">
-                <input type="text" name="taxon-search" class="search-query" placeholder="Search for taxon" autocomplete="off"
-                    style="width: 100px;">
-                <!-- <input type="submit" style="" name="taxon-search-go" value="Go" onclick="return false;"/> -->
+                <div class="left-inner-addon">
+                    <i class="icon-search"></i>
+                    <input type="text" name="taxon-search" class="search-query" placeholder="Search for taxon" autocomplete="off"
+                        style="width: 100px;" tabindex="1">
+                </div>
                 <!-- then show dropdown when results are ready... -->
                 <span style="color: #999; padding: 0 2px; font-size: 14px;">in</span>
-                <select style="margin-bottom: 0; width: auto;" name="taxon-search-context">
+                <select class="btn-inverse" style="margin-bottom: 0; width: auto;" name="taxon-search-context">
                     {{ # generate our contextNames list based on newly fetched names
                       try:
                        for context_name in taxonSearchContextNames:
@@ -141,15 +418,16 @@
                             <option>{{= context_name }}</option>
                        {{ pass }}
                     {{ pass }}
-                    {{ except:
-                        pass}}
-                <!-- 
-                NOTE that the displayed OPTION values (confirmed as current via AJAX) are accepted 
+                    {{ except: }}
+                            <option selected="selected">ERROR loading context values</option>
+                       {{ pass }}
+                <!--
+                NOTE that the displayed OPTION values (confirmed as current via AJAX) are accepted
                 by the server, ie, there's no distinction between visible and occult values.
                 -->
                 </select>
                 <div class="">
-                    <ul id="search-results" class="dropdown-menu">
+                    <ul id="search-results" class="dropdown-menu" role="menu">
                         ...
                     </ul>
                 </div>
@@ -167,9 +445,9 @@
         <div class="span3 left-sidebar">
             <div class="header">
               <div class="headerlogo">
-                {{=A(IMG(_src=URL('static','images/logo.png'), 
+                {{=A(IMG(_src=URL('static','images/logo.png'),
                         _alt="Open Tree of Life logo",
-                        _width="144", 
+                        _width="144",
                         _height="74",
                         _valign="middle"),
                     _href="http://opentreeoflife.org/")}}
@@ -197,7 +475,7 @@
         </div>
         {{pass}}
     </section>
-    
+
 </div><!-- /.container -->
 
 <!-- Footer ================================================== -->
@@ -209,8 +487,28 @@
             {{=T('Open Tree of Life is funded by NSF (AVAToL)')}}
             </div>
         <div id="poweredBy" class="pull-right">
+            <a href="#" onclick="toggleServerDetailsPopup(); return false;">Show/hide server details</a>
+            &bull;
+            <a href="/opentree/about/licenses" IGNOREME="{{ = URL('opentree', 'about','licenses') }}" rel="jslicense">License information</a>
+            &bull;
             {{=T('Powered by')}}
             <a href="http://www.web2py.com/" target="_blank" >web2py</a>
+        </div>
+        <div id="server-details" style="display: none; clear: both; margin: 4px 0; background-color: #f5f5f5; padding: 6px 8px; border-radius: 8px;">
+            Configuration for the <strong>{{= request.application }}</strong> web2py app:
+            <dl>
+               <dt id="deployed-branch">deployed branch of opentree webapps:</dt>
+                   <dd><strong style="color: #888;">{{= get_currently_deployed_opentree_branch(request) }}
+                   </strong></dd>
+            {{ # format non-sensitive config data for display
+               conf = get_conf(request)
+               for sec in conf.sections(): }}
+               <dt>{{= sec }}</dt>
+                   {{ for itm in conf.items(sec): }}
+                   <dd><strong style="color: #888;">{{= itm[0] }}</strong>: {{= itm[1] }}</dd>
+                   {{ pass }}
+            {{ pass }}
+            </dl>
         </div>
         {{end}}
     </div>

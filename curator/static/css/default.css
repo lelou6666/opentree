@@ -6,24 +6,24 @@ body {
    the desire to have a nice, big, fat search box.
 */
 .header {
-	margin: 2px; 
+	margin: 2px;
 	height: 85px;
 }
 .headerlogo {
 	float: left;
 }
-.sidebar-search {	
+.sidebar-search {
     background-color: #ffc;
     border: 1px solid #dda;
     border-radius: 4px;
     margin: -3px;
     padding: 8px 4px;
 }
-.sidebar-search form {	
+.sidebar-search form {
     margin: 0;
 }
 #search-results i {
-    display: block; 
+    display: block;
     margin: 8px 0 0;
 }
 .search-result {
@@ -68,7 +68,7 @@ body {
 #provenance-panel .panel-edges {
     background-color: #eee;
 }
-.vizcontent div.viewer-frame, 
+.vizcontent div.viewer-frame,
 #comments-panel,
 #provenance-panel {
     float: left;
@@ -77,7 +77,7 @@ body {
 }
 .vizcontent div.viewer-frame {
 	padding: 0px;
-    background-color: #f5f5ec; /* #faf5ee; */
+    background-color: #fff;
     overflow: auto;
 }
 
@@ -102,32 +102,32 @@ div.viewer-frame {
 }
 
 /* slide these using marker classes on #viewer-collection */
-.active-comments #comments-panel {   
-    margin-left: 0; 
-    margin-right: 0; 
+.active-comments #comments-panel {
+    margin-left: 0;
+    margin-right: 0;
 }
 .active-comments div.viewer-frame {
     width: 50%;  /* TODO: adapt to narrower window!? */
     margin-left: 0;
-    margin-right: 0; 
+    margin-right: 0;
 }
-.active-comments #provenance-panel {    
+.active-comments #provenance-panel {
     margin-left: 0;
-    margin-right: -100%; 
+    margin-right: -100%;
 }
 
-.active-properties #comments-panel {   
-    margin-left: -50%; 
-    margin-right: 0; 
+.active-properties #comments-panel {
+    margin-left: -50%;
+    margin-right: 0;
 }
 .active-properties div.viewer-frame {
     width: 50%;
     margin-left: 0;
-    margin-right: 0; 
+    margin-right: 0;
 }
-.active-properties #provenance-panel {    
+.active-properties #provenance-panel {
     margin-left: 0;
-    margin-right: 0; 
+    margin-right: 0;
 }
 
 /* overrides for tablet-sized displays (matching Bootstrap media queries) */
@@ -157,22 +157,22 @@ div.viewer-frame {
     }
 
     /* slide these using marker classes on #viewer-collection */
-    .active-comments #comments-panel {   
-        margin-left: 0; 
+    .active-comments #comments-panel {
+        margin-left: 0;
         margin-right: 0;
     }
     .active-comments div.viewer-frame {
         width: 100%;
-        margin-left: 0; 
+        margin-left: 0;
         margin-right: -90%;
     }
-    .active-comments #provenance-panel {    
-        margin-left: 90%; 
+    .active-comments #provenance-panel {
+        margin-left: 90%;
         margin-right: -180%;
     }
 
-    .active-properties #comments-panel {   
-        margin-left: -90%; 
+    .active-properties #comments-panel {
+        margin-left: -90%;
         margin-right: 0;
     }
     .active-properties div.viewer-frame {
@@ -180,7 +180,7 @@ div.viewer-frame {
         margin-left: -90%;
         margin-right: 0;
     }
-    .active-properties #provenance-panel {    
+    .active-properties #provenance-panel {
         margin-left: 0;
         margin-right: 0;
     }
@@ -348,7 +348,7 @@ a.full-ref-toggle:hover {
     font-size: 90%;
     margin-bottom: 4px;
 }
-.full-study-ref, 
+.full-study-ref,
 .compact-study-ref {
     /* font-weight: bold; */
 }
@@ -373,7 +373,7 @@ p#tree-description {
 h1#main-title {
     font-size: 32px;
     margin-bottom: 0;
-    padding: 2px 0 26px;
+    padding: 2px 0 5px;
     line-height: 1.2em;
 }
 h1#main-title .comments-indicator,
@@ -425,11 +425,11 @@ div#r0 {
     float: right;
 }
 #screen-size-indicator {
-    position: absolute; 
-    left: 0; 
-    top: 0; 
+    position: absolute;
+    left: 0;
+    top: 0;
     padding: 1px 6px;
-    background: red; 
+    background: red;
     color: white;
 }
 
@@ -439,6 +439,7 @@ div.flash {
     right: 0;
     bottom: 0;
     margin-bottom: 0;
+    z-index: 11000;  /* above modal screens and popups */
 }
 
 div.flash #closeflash{color:inherit; float:right; margin-left:15px; cursor:pointer;}
@@ -477,11 +478,20 @@ div.flash #closeflash{color:inherit; float:right; margin-left:15px; cursor:point
 .suggestion-list span.label {
     padding: 0.3em 0.7em 0.4em;
 }
+.suggestion-prompt {
+    color: #b94a48;
+}
 
 .static-form-value {
     padding-top: 5px;
     margin-bottom: 5px;
     font-weight: bold;
+}
+.rendered-comment {
+    background-color: #f5f5f5;
+    border: none;
+    border-radius: 4px;
+    padding: 5px;
 }
 .interesting-value {
     color: #b94a48;
@@ -490,14 +500,16 @@ div.flash #closeflash{color:inherit; float:right; margin-left:15px; cursor:point
     color: #999;
 }
 .wireframe {
-    /* 
+    /*
     border: 1px dashed silver;
     background-color: #ffc;
      */
 }
 .featured-label {
-    font-size: 1.3em;
-    margin-top: 20px;
+    display: block !important;
+}
+.featured-label input[type="radio"] {
+    vertical-align: baseline;
 }
 .featured-label input[type="radio"],
 .featured-label input[type="checkbox"] {
@@ -506,13 +518,24 @@ div.flash #closeflash{color:inherit; float:right; margin-left:15px; cursor:point
 .featured-label-description {
     color: #999;
     font-style: italic;
-    padding: 2px 0 0 20px;
+}
+.featured-label-description strong {
+    color: #333;
 }
 .featured-label-child {
-    padding-left: 20px;
+    padding: 6px 0 6px 20px;
 }
 .navbar-inner .pagination {
     margin: 0.5em 0 0;
+}
+.pagination-small ul > li > a.pagination-spacer {
+    padding-left: 0;
+    padding-right: 0;
+    border-right-width: 0;
+    background-color: #ddd;
+}
+.pagination-small ul > li > a.pagination-spacer:hover {
+    background-color: #0088cc;
 }
 
 /* simplified table style with no headers */
@@ -521,12 +544,12 @@ table.bare-top-row tr:first-child td {
 }
 
 img.tool-icon {
-    width: 100px; 
-    height: 100px; 
-    background-color: #f5f5f5; 
-    /*
-    border: 1px solid #ccc; 
+    width: 100px;
+    height: 100px;
+    background-color: #f5f5f5;
     border-radius: 8px;
+    /*
+    border: 1px solid #ccc;
     */
 }
 
@@ -558,12 +581,274 @@ tr:hover .row-controls-ghosted {
     margin: 0.75em 0 0;
     overflow: hidden;
 }
+#OTU-Mapping .btn-mini [class="icon-ok"] {
+    opacity: 0;
+}
+#OTU-Mapping .btn-mini:hover [class="icon-ok"] {
+    opacity: 0.5;
+}
 .clear-search {
-    opacity: 0.5; 
-    margin-top: 2px; 
-    margin-left: -24px; 
+    opacity: 0.5;
+    margin-top: 2px;
+    margin-left: -24px;
     cursor: pointer;
 }
 .clear-search:hover {
-    opacity: 1.0; 
+    opacity: 1.0;
+}
+.help-box,
+.help-toggle,
+.empty-list-prompt {
+    padding: 0.5em 1em;
+    background-color: #ffeedd;
+    font-style: italic;
+    border-radius: 4px;
+}
+.help-box {
+    margin-bottom: 1em;
+}
+.help-box .btn {
+    font-style: normal;
+}
+.help-toggle {
+    float: right;
+    /* font-weight: bold; */
+    /* font-style: normal; */
+    color: #333;
+    border: 1px solid #db8;
+    padding: 4px 8px 4px 10px;
+    border-radius: 4px;
+    margin: 0px;
+    margin-bottom: 1em;
+}
+.help-toggle:hover {
+    background-color: #eca;
+}
+.help-box .help-toggle {
+    /* inner "Hide" toggle */
+    margin: -5px -12px 4px 8px;
+}
+
+/* modal event blocker */
+#modal-screen-message {
+    padding: 12px;
+    text-align: center;
+    font-size: 1.6em;
+    color: #888;
+}
+
+/* DOI lookup window */
+.before-matches {
+    margin-top: -6px;
+}
+.current-ref-values {
+    background-color: #eee;
+    margin: 0px -4px 2px;
+    padding: 6px 8px;
+    border-radius: 8px;
+    margin-bottom: 2px;
+}
+.current-ref-values strong {
+    color: #555;
+}
+.found-matches {
+    border: 1px solid #ddd;
+    margin: 0px -4px;
+    padding-left: 6px;
+    padding-right: 6px;
+    max-height: 365px;
+    overflow-y: auto;
+}
+.found-matches .match {
+    border-bottom: 1px solid #ddd;
+    padding-top: 0.5em;
+    padding-bottom: 1em;
+}
+.found-matches .match:last-child {
+    border-bottom: none;
+}
+.found-matches .doi {
+    font-weight: bold;
+    margin: 0.5em 0;
+}
+
+/* Wrap long lines in pre-formatted commit messages (History tab).
+ * Adapted from http://css-tricks.com/snippets/css/make-pre-text-wrap/
+ */
+#History pre {
+/*
+    border: 0px solid transparent;
+    background-color: transparent;
+    padding: 0px;
+*/
+    box-sizing: border-box;
+    -moz-box-sizing: border-box;
+    webkit-box-sizing: border-box;
+    display: block;
+    white-space: pre-wrap;
+    white-space: -moz-pre-wrap;
+    white-space: -pre-wrap;
+    white-space: -o-pre-wrap;
+    word-wrap: break-word;
+    word-break: break-word;
+    width: 100%;
+    margin-left: -5px;
+    overflow-x: auto;
+}
+
+#tree-viewer {
+    width: 90%;
+    margin: auto -45%;
+}
+#tree-viewer .modal-body {
+    height: 75%;
+    margin-left: 8px;
+}
+#tree-viewer .modal-body svg {
+    /* try to make this offsetParent to all its contents */
+    position: relative;
+}
+#tree-properties .bootstrap-tagsinput {
+    margin-bottom: 0px;
+}
+#tree-legend {
+    background-color: #f5f5f5;
+    border-radius: 6px;
+    padding: 8px;
+}
+#tree-legend table {
+    width: 100%;
+}
+#tree-legend table td {
+    height: 38px;
+    padding: 4px;
+}
+#server-details {
+    display: none;
+    clear: both;
+    margin: 4px 0;
+    background-color: #f5f5f5;
+    padding: 6px 8px;
+    border-radius: 8px;
+}
+#server-details .shard-name,
+#server-details .setting-name {
+    color: #888;
+}
+/* Warning banners appear when using DEVELOPMENT, STAGING servers */
+.ribbon-banner {
+    display: block;
+    position: absolute;
+    top: 40px;
+    left: -90px;
+    width: 300px;
+    height: 30px;
+    line-height: 30px;
+    text-align: center;
+    opacity: 0.7;
+    -webkit-transform: rotate(-45deg);
+    -moz-transform:    rotate(-45deg);
+    -ms-transform:     rotate(-45deg);
+    transform:         rotate(-45deg);
+    font-size: 18px;
+    font-weight: 900;
+    color: #fff;
+    background-color: #c00;
+    border: 1px solid white;
+    z-index: 500;
+    cursor: pointer;
+}
+.needs-attention {
+    background-color: #fdd;
+    padding: 4px;
+    margin: -4px;
+    border-radius: 4px;
+}
+div.structure-only {
+    padding: 0;
+    margin: 0;
+}
+ul.mapping-options {
+    list-style: none;
+    margin: 0 0 8px 0;
+    position: relative; /* choices should float above right sidebar */
+}
+ul.mapping-options li {
+    padding: 2px 0;
+}
+ul.mapping-options li .key-note {
+    color: #777;
+    float: right;
+    width: 50%;
+}
+ul.mapping-options li a:hover {
+    opacity: 1.0 !important;
+    -webkit-box-shadow: 1px 2px 4px rgba(0, 0, 0, 0.5);
+    -moz-box-shadow: 1px 2px 4px rgba(0, 0, 0, 0.5);
+    box-shadow: 1px 2px 4px rgba(0, 0, 0, 0.5);
+}
+
+tr.table-shims td {
+    height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+}
+tr.after-shims th {
+    border-top: 0;
+}
+.collection-actions {
+    position: relative;
+    top: -8px;
+}
+.collection-move-panel {
+    position: absolute;
+    margin-left: 2px;
+    z-index: 1;
+    border-radius: 5px;
+    background-color: #fff;
+    -webkit-box-shadow: 1px 2px 4px rgba(0, 0, 0, 0.5);
+    -moz-box-shadow: 1px 2px 4px rgba(0, 0, 0, 0.5);
+    box-shadow: 1px 2px 4px rgba(0, 0, 0, 0.5);
+}
+.collection-move-panel button {
+    opacity: 1.0;
+}
+
+.form-horizontal.metadata-readonly .control-group {
+  margin-bottom: 12px;
+}
+
+.profile-header .control-group > .control-label,
+.profile-header .control-group > .controls {
+    margin-top: -8px;
+}
+
+/* Prepend search icon in the input field */
+.navbar-search .left-inner-addon {
+    position: relative;
+    display: inline-block;
+}
+.navbar-search .left-inner-addon .search-query {
+    padding-left: 24px;
+}
+.navbar-search .left-inner-addon .search-query:focus,
+.navbar-search .left-inner-addon .search-query.focused {
+    padding-left: 25px;
+}
+.navbar-search .left-inner-addon i {
+    position: absolute;
+    top: 7px;
+    left: 8px;
+    pointer-events: none;
+}
+.alert pre.error-details {
+    /* manage very large server responses in footer */
+    overflow: scroll;
+    max-height: 400px;
+}
+
+/* styles for conflict and other analyses */
+.conflict-report-node-list {
+	  display: none;
+		margin-left: 4em;
 }

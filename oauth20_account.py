@@ -9,6 +9,12 @@ Adds support for  OAuth 2.0 authentication to web2py.
 
 OAuth 2.0 spec: http://tools.ietf.org/html/rfc6749
 
+*****************************
+NOTE that this is a modified version from web2py 2.8.2. For full details on what has changed, see
+https://github.com/OpenTreeOfLife/opentree/commits/master/oauth20_account.py
+
+This file was patched (by jimallman, on 3/25/2014) to support redirection on proxied web2py servers.
+*****************************
 """
 
 import time
@@ -101,8 +107,8 @@ server for requests.  It can be used for the optional"scope" parameters for Face
         the client back to the page originating the auth request.
         Appends the _next action to the generated url so the flows continues.
         """
-        r = current.request
 
+        r = current.request
         if 'redirect_uri' in self.args and self.args['redirect_uri']:
             # avoid problems with proxied servers ('localhost:8000')
             uri = self.args['redirect_uri']
@@ -124,7 +130,6 @@ server for requests.  It can be used for the optional"scope" parameters for Face
 
         if r.get_vars and not next:
             uri += '?' + urlencode(r.get_vars)
-
         return uri
 
 
@@ -156,7 +161,7 @@ server for requests.  It can be used for the optional"scope" parameters for Face
             # reuse token until expiration
             if expires == 0 or expires > time.time():
                         return current.session.token['access_token']
-            
+
         code = current.request.vars.code
 
         if code:
@@ -299,7 +304,7 @@ server for requests.  It can be used for the optional"scope" parameters for Face
             if self.args:
                 data.update(self.args)
             auth_request_url = self.auth_url + "?" + urlencode(data)
-            raise HTTP(307,
+            raise HTTP(302,
                        "You are not authenticated: you are being redirected to the <a href='" + auth_request_url + "'> authentication server</a>",
                        Location=auth_request_url)
         return

@@ -1,3 +1,37 @@
+/*    
+@licstart  The following is the entire license notice for the JavaScript code in this page. 
+
+    Copyright (c) 2013, Cody Hinchliff
+    Copyright (c) 2013, Joseph W. Brown
+    Copyright (c) 2013, Jim Allman
+    Copyright (c) 2013, Mark Holder
+
+    All rights reserved.
+
+    Redistribution and use in source and binary forms, with or without
+    modification, are permitted provided that the following conditions are met:
+
+    Redistributions of source code must retain the above copyright notice, this
+    list of conditions and the following disclaimer.
+
+    Redistributions in binary form must reproduce the above copyright notice,
+    this list of conditions and the following disclaimer in the documentation
+    and/or other materials provided with the distribution.
+
+    THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+    AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+    IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+    DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+    FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+    DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+    SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+    CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+    OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+    OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+@licend  The above is the entire license notice for the JavaScript code in this page.
+*/
+
 /*jslint indent: 4 */
 /*globals XMLHttpRequest, Raphael, $, window, location, History, pageUsesHistory, nodeDataLoaded, historyStateToURL, historyStateToWindowTitle*/
 
@@ -17,9 +51,8 @@ function createArgus(spec) {
     var paper;
     // use a series of "empty" elements to organize others by depth
     var dividerBeforeEdges, dividerBeforeLabels, dividerBeforeHighlights, dividerBeforeNodes, dividerBeforeAnchoredUI;
-    var getHoverHandlerNode;
+    var getHoverHandlerNodeAndEdge;
     var getHoverHandlerCluster;
-    var getHoverHandlerEdge; // ie, a path
     var getClickHandlerNode;
     var getClickHandlerCluster;
     var makeRoomForOpeningCluster;
@@ -31,10 +64,8 @@ function createArgus(spec) {
     var zoomStep;
     var setZoom;
     var getClickHandlerAltRelLine;
-    var getHoverHandlerNodeHighlight;
-    var getHoverHandlerEdgeHighlight;
-    var getClickHandlerNodeHighlight;
-    var getClickHandlerEdgeHighlight;
+    var getHoverHandlerProvenanceHighlight;
+    var getClickHandlerProvenanceHighlight;
 
     var isNumeric = function (n) {
         return !isNaN(parseFloat(n)) && isFinite(n);
@@ -100,7 +131,7 @@ function createArgus(spec) {
         "treeData": null,
         "fontScalar": 2.6, // multiplied by radius to set font size
         "minTipRadius": 5, // the minimum radius of the node/tip circles. "r" in old argus
-        "nodeDiamScalar": 1.5,  // how much internal nodes are scaled by logleafcount
+        "nodeDiamScalar": 1.0,  // how much internal nodes are scaled by logleafcount
         "nodesWidth": 100, // the distance between parent/child nodes
             // TODO: try a wider setting (180?), or adapt to screen-width  
         "nubDistScalar": 4, // the x/y distance of the nub from its child
@@ -111,16 +142,21 @@ function createArgus(spec) {
         "yOffset": 10, // distance from top margin at which topmost nodes are drawn; also set in loadData
         "yOffsetDefault": 10, // distance from top margin at which topmost nodes are drawn; also set in loadData
         /* colors for the tree view */
-        "bgColor": "#f5f5ec",
+        "bgColor": "#fff",
         "altPColor": "#c69",
         "altPLinkColor": "#900",
         "altRelColor": "#f00",
-        "nodeColor": "#8af",
+        "nodeColor": "#999",
+        "actualLeafColor": "#333",
+        "visibleLeafColor": "#fff",  // ie, click to see more descendants
         "nodeHoverColor": "#ff3333",
-        "pathColor": "#bb9977",
-        "labelColor": "#997766",
-        "provenanceHighlightColor": "#ff3333",
-        "tipColor": "#14d",
+        "pathColor": "#999",
+        "strongPathColor": "#000",
+        "labelColor": "#000",
+        "provenanceHighlightColor": "#3333ff",
+        "provenanceHighlightLabelColor": "#3333ff",
+        "provenanceHighlightLabelBackgroundColor": "#ffffff",
+        "tipColor": "#999",
         "tipHoverColor": "#ff3333",
         "currMaxDepth": spec.maxDepth,
         "backStack": [], // args to previous displayNode calls
@@ -139,10 +175,8 @@ function createArgus(spec) {
         backArrowX: 10,
         backArrowY: 10,
         anchoredControls: null,
-        nodeProvenanceHighlight: null,
-        edgeProvenanceHighlight: null,
+        provenanceHighlight: null,
         highlightedNodeInfo: null,
-        highlightedEdgeInfo: null,
         targetNodeY: 0,  // used to center the view (vertically) on the target node
 
         // use Javascript pseudo-classes (defined below) to make tree operations more sensible
@@ -156,6 +190,15 @@ function createArgus(spec) {
                     for (var i = 0; i < value.children.length; i++) {
                         value.children[i].parentNodeID = value.nodeid;
                     }
+                }
+
+                if (value.pathToRoot) {
+                    // assign parent IDs up the "root-ward" chain of nodes
+                    var testChild = value;
+                    $.each(value.pathToRoot, function(i, testParent) {
+                        testChild.parentNodeID = testParent.nodeid;
+                        testChild = testParent;  // and move to *its* parent
+                    });
                 }
 
                 // convert to desired JS pseudo-class
@@ -173,6 +216,7 @@ function createArgus(spec) {
                 return (node.nodeid === nodeID); 
             });
         },
+        // TODO: add a method to get node by OTT id?
 
         getZoomInHandler: function () {
             return function() {
@@ -224,10 +268,14 @@ function createArgus(spec) {
                 ajaxData.subtreeNodeID = String(o.nodeID);
             }
         } else {
+            /* TODO: Restore the ability to fetch conflict information from taxomachine?
             url = getConflictTaxJsonAltRel_url.replace('{nodeID}', o.nodeID);
             // @TEMP assuming ottol
             ds = o.domSource === undefined ? "ottol" : o.domSource;
             ajaxData = {"domsource": ds}; // phylotastic TNRS API wants domsource, MTH believes.
+            */
+            alert("AJAX calls via taxomachine are no longer supported.");
+            return;
         }
         return {
             "url": url,
@@ -468,8 +516,22 @@ function createArgus(spec) {
             */
 
             // add (and hide) moving highlights for node and edge provenance
-            argusObj.nodeProvenanceHighlight = paper.set();
-            argusObj.nodeProvenanceHighlight.push(
+            argusObj.provenanceHighlight = paper.set();
+            // rect to allow scaling (vs path)
+            argusObj.provenanceHighlight.push(
+                paper.rect().attr({
+                    "x": -50,
+                    "y": -2,
+                    "width": 100,
+                    "height": 4,
+                    "fill": argusObj.provenanceHighlightColor,
+                    "title": "Click to see properties for this edge",
+                    "stroke": "none",
+                    "cursor": "pointer"
+                }).insertBefore(dividerBeforeNodes)
+            );
+            
+            argusObj.provenanceHighlight.push(
               // Draw a lozenge shape, centered on its right focus
               // see http://www.w3.org/TR/SVG/paths.html#PathDataEllipticalArcCommands
                 paper.path('M -20,-7.5 L 0,-7.5  A 7.5,7.5 0 0,1 0,7.5  L -20,7.5  A 7.5,7.5 0 0,1 -20,-7.5  Z').attr({
@@ -478,89 +540,37 @@ function createArgus(spec) {
                     "stroke": argusObj.provenanceHighlightColor,
                     "title": "Click to see properties for this node", // add name?
                     "stroke-width": 2,
-                    "fill": "white"
+                    "fill": argusObj.provenanceHighlightLabelBackgroundColor,
+                    "cursor": "pointer"
                 }).insertBefore(dividerBeforeNodes)
             );
-            argusObj.nodeProvenanceHighlight.push(
+            argusObj.provenanceHighlight.push(
                 paper.text().attr({
                     "x": -20,
                     "y": 0,
-                    "text": "?",
+                    "text": "i",
                     "title": "Click to see properties for this node", // add name?
                     "text-anchor": "middle",
-                    "fill": argusObj.provenanceHighlightColor,
+                    "fill": argusObj.provenanceHighlightLabelColor,
                     "font-weight": "bold",
-                    "font-size": 12 
+                    "font-family": "Courier, monospace",
+                    "font-size": 12,
+                    "cursor": "pointer"
                 }).insertBefore(dividerBeforeNodes)
             );
-            // hide until user rolls over a node
-            argusObj.nodeProvenanceHighlight.hide();
+            // hide until user rolls over a node or edge
+            argusObj.provenanceHighlight.hide();
 
-            argusObj.nodeProvenanceHighlight.hover(
-                getHoverHandlerNodeHighlight('OVER', argusObj.nodeProvenanceHighlight, {}), 
-                getHoverHandlerNodeHighlight('OUT', argusObj.nodeProvenanceHighlight, { })
+            argusObj.provenanceHighlight.hover(
+                getHoverHandlerProvenanceHighlight('OVER', argusObj.provenanceHighlight, {}), 
+                getHoverHandlerProvenanceHighlight('OUT', argusObj.provenanceHighlight, { })
             );
-            argusObj.nodeProvenanceHighlight.click(
-                // note that the target node's info is available as argusObj.highlightedNodeInfo
-                getClickHandlerNodeHighlight()
-            );
-
-            argusObj.edgeProvenanceHighlight = paper.set();
-            // rect to allow scaling (vs path)
-            argusObj.edgeProvenanceHighlight.push(
-                paper.rect().attr({
-                    "x": -50,
-                    "y": -2,
-                    "width": 100,
-                    "height": 4,
-                    "fill": argusObj.provenanceHighlightColor,
-                    "title": "Click to see properties for this edge",
-                    "stroke": "none"
-                }).insertBefore(dividerBeforeNodes)
-
-                /* this path version was tempting, but doesn't scale easily!
-                paper.path("M-50 0L50 0").toBack().attr({
-                    "stroke": argusObj.provenanceHighlightColor,
-                    "stroke-linecap": 'round',
-                    "stroke-width": 4,
-                    "title": "Click to see properties for this edge",
-                }).insertBefore(dividerBeforeNodes)
-                */
-            );
-            argusObj.edgeProvenanceHighlight.push(
-                // Draw a circle or smaller lozenge shape
-                paper.circle(0, 0, 7.5).attr({
-                    "x": 0,
-                    "y": 0,
-                    "title": "Click to see properties for this edge",
-                    "stroke": argusObj.provenanceHighlightColor,
-                    "stroke-width": 2,
-                    "fill": "white"
-                }).insertBefore(dividerBeforeNodes)
-            );
-            argusObj.edgeProvenanceHighlight.push(
-                paper.text().attr({
-                    "x": 0,
-                    "y": 0,
-                    "text": "?",
-                    "title": "Click to see properties for this edge",
-                    "text-anchor": "middle",
-                    "fill": argusObj.provenanceHighlightColor,
-                    "font-weight": "bold",
-                    "font-size": 12 
-                }).insertBefore(dividerBeforeNodes)
-            );
-            // hide until user rolls over an edge
-            argusObj.edgeProvenanceHighlight.hide();
-            
-            argusObj.edgeProvenanceHighlight.hover(
-                getHoverHandlerEdgeHighlight('OVER', argusObj.edgeProvenanceHighlight, {}), 
-                getHoverHandlerEdgeHighlight('OUT', argusObj.edgeProvenanceHighlight, { })
-            );
-            argusObj.edgeProvenanceHighlight.click(
-                // note that the target edge's info is available as argusObj.highlightedEdgeInfo
-                getClickHandlerEdgeHighlight()
-            );
+            var handler = getClickHandlerProvenanceHighlight(); // just once!
+            // note that the target node's info is available as argusObj.highlightedNodeInfo
+            $.each(argusObj.provenanceHighlight.items, function(i, item) {
+                // we need to dig into the actual nodes to use jQuery binding
+                $(item.node).on('click contextmenu', handler);
+            });
 
             // refresh tree
             argusObjRef.nodesHash = {};
@@ -590,11 +600,10 @@ function createArgus(spec) {
             converters: { 
                 // serialize this JSON into dedicated pseudo-classes
                 'text nodeTree': function(data) {
-                    console.log(">>> pre-processing raw JSON string..." );
+                    ///console.log(">>> pre-processing raw JSON string..." );
                     // NOTE that jQuery's parseJSON() doesn't support the 'reviver' option
                     ///return $.parseJSON(data, argusObj.makeNodeTree);
                     return JSON.parse(data, argusObj.makeNodeTree);
-                    // TODO: ensure proper JSON support in all target browsers, see http://stackoverflow.com/a/10936563
                 }
             },
             success: ajaxSuccess,
@@ -617,8 +626,8 @@ function createArgus(spec) {
             var stateObj = $.extend(true, {'nodeName': ''}, o); // deep copy of o, with default values if none supplied
             History.pushState(stateObj, historyStateToWindowTitle(stateObj), historyStateToURL(stateObj));
         } else {
-            // proceed directly to display (ignore browser history)
-            this.displayNode(o);
+            // proceed directly to display (emulate browser history State object)
+            updateTreeView({'data': o});
         }
     };
 
@@ -665,23 +674,65 @@ function createArgus(spec) {
     };
 
     // create closure to access node attributes when hovering in/out
-    getHoverHandlerNode = function (hoverState, circle, shapeAttributes, nodeInfo) {
-        var nodeCircle = circle;
+    getHoverHandlerNodeAndEdge = function (hoverState, shape, shapeAttributes, nodeInfo) {
+        ///console.log("CALL getHoverHandlerNodeAndEdge - "+ hoverState);
+        var targetShape = shape;
         return function () {
+            ///console.log("INNER getHoverHandlerNodeAndEdge - "+ hoverState);
+            var srcInfo = $.extend(true, {}, targetShape.data('sourceNodeInfo'));
+            var nodeCircle, edgePath;
+            switch (targetShape.type) {
+                case 'circle':
+                    nodeCircle = targetShape;
+                    edgePath = paper.getById('node-branch-trigger-'+ srcInfo.nodeID);
+                    break;
+
+                case 'path':
+                    nodeCircle = paper.getById('node-circle-'+ srcInfo.nodeID);
+                    edgePath = targetShape;
+                    break;
+                    
+                default:
+                    console.warn("getHoverHandlerNodeAndEdge(): Unexpected type for targetShape: '"+ targetShape.type +"'!");
+                    return;
+            }
+
             nodeCircle.attr(shapeAttributes);
             switch (hoverState) {
                 case 'OVER':
                     // copy source-node values from the target node to the highlight
-                    var srcInfo = $.extend(true, {}, nodeCircle.data('sourceNodeInfo'));
 
                     argusObj.highlightedNodeInfo = srcInfo;
                     
-                    // hide any stale *edge* highlight
-                    argusObj.edgeProvenanceHighlight.hide();
-
                     // move the highlight to this node
-                    argusObj.nodeProvenanceHighlight.transform('t' + nodeCircle.attr('cx') + ',' + nodeCircle.attr('cy'));
-                    argusObj.nodeProvenanceHighlight.show();
+                    argusObj.provenanceHighlight.transform('t' + nodeCircle.attr('cx') + ',' + nodeCircle.attr('cy'));
+                    
+                    if (edgePath) {
+                        // move the highlight to this edge
+                        // no easy x/y attributes for a path, need to use its bounding box
+                        var bbox = edgePath.getBBox(false);
+
+                        argusObj.provenanceHighlight.forEach(function(element) {
+                            if (element.type == 'rect') {
+                                var xScale = (bbox.width / 100); 
+                                var pathScale = 'S '+ xScale +',1  t' + ((bbox.x + (bbox.width / 2.0)) / xScale) + ',' + bbox.y;
+                                    // 100 is the natural width of the hilight path
+                                element.transform(pathScale);
+                                element.show();
+                            }
+                        });
+                    }
+
+                    argusObj.provenanceHighlight.show();
+
+                    if (!edgePath) {
+                        // hide edge-highlight rect if there's no upward edge
+                        argusObj.provenanceHighlight.forEach(function(element) {
+                            if (element.type == 'rect') {
+                                element.hide(); 
+                            }
+                        });
+                    }
                     break;
                 case 'OUT':
                     // do nothing for now
@@ -712,7 +763,7 @@ function createArgus(spec) {
             }
         };
     };
-    getHoverHandlerNodeHighlight = function (hoverState, highlight, shapeAttributes, highlightInfo) {
+    getHoverHandlerProvenanceHighlight = function (hoverState, highlight, shapeAttributes, highlightInfo) {
         var nodeHighlight = highlight;
         return function (evt) {
             switch (hoverState) {
@@ -722,99 +773,50 @@ function createArgus(spec) {
                 case 'OUT':
                     // are we REALLY outside the lozenge, or just over the text?
                       
-                    // remap page-based mouse coordinates to the canvas
-                    var localX = evt.pageX - $('#argusCanvasContainer').offset().left + $('#argusCanvasContainer').scrollLeft();
-                    var localY = evt.pageY - $('#argusCanvasContainer').offset().top  + $('#argusCanvasContainer').scrollTop();
-
-                    var bbox = argusObj.nodeProvenanceHighlight.getBBox(); // bounding box
+                    // Test using client/page coordinates, instead of canvas.
+                    // (This handles scaling, scrolling, etc. more reliably.)
+                    var bbox = getClientBoundingBox( argusObj.provenanceHighlight );
                     
-                    if (Raphael.isPointInsideBBox( bbox, localX, localY )) {
+                    if (Raphael.isPointInsideBBox( bbox, evt.pageX, evt.pageY )) {
                         // false alarm, it's just moved over text or the node circle
                         return;
                     }
 
                     nodeHighlight.attr(shapeAttributes);
                     // hide the node highlight
-                    argusObj.nodeProvenanceHighlight.hide();
+                    argusObj.provenanceHighlight.hide();
                     break;
                 default:
                     console.log('Unexpected value for hoverState (node highlight): '+ hoverState);
             }
         };
     }
-    getHoverHandlerEdge = function (hoverState, path, shapeAttributes, edgeInfo) {
-        var edgePath = path;
-        return function () {
-            edgePath.attr(shapeAttributes);
-            switch (hoverState) {
-                case 'OVER':
-                    // copy source-node values from the target edge to the highlight
-                    var srcInfo = $.extend(true, {'type':'edge'}, edgePath.data('sourceNodeInfo'));
 
-                    argusObj.highlightedEdgeInfo = srcInfo;
-                    
-                    // hide any stale *node* highlight
-                    argusObj.nodeProvenanceHighlight.hide();
-
-                    // move the highlight to this edge
-                    // no easy x/y attributes for a path, need to use its bounding box
-                    var bbox = edgePath.getBBox(false);
-
-                    argusObj.edgeProvenanceHighlight.forEach(function(element) {
-                        if (element.type == 'rect') {
-                            var xScale = (bbox.width / 100); 
-                            var pathScale = 'S '+ xScale +',1  t' + ((bbox.x + (bbox.width / 2.0)) / xScale) + ',' + bbox.y;
-                                // 100 is the natural width of the hilight path
-                            element.transform(pathScale);
-                        } else {
-                            element.transform('t' + (bbox.x + (bbox.width / 2.0)) + ',' + bbox.y);
-                        }
-                    });
-                    argusObj.edgeProvenanceHighlight.show();
-
-                    break;
-                case 'OUT':
-                    // do nothing for now
-                    break;
-                default:
-                    console.log('Unexpected value for hoverState: '+ hoverState);
-            }
-        };
-    };
-    getHoverHandlerEdgeHighlight = function (hoverState, highlight, shapeAttributes, highlightInfo) {
-        var edgeHighlight = highlight;
-        return function (evt) {
-            edgeHighlight.attr(shapeAttributes);
-            switch (hoverState) {
-                case 'OVER':
-                    break;
-                case 'OUT':
-                    // are we REALLY outside the lozenge and bar, or just over the text?
-                      
-                    // remap page-based mouse coordinates to the canvas
-                    var localX = evt.pageX - $('#argusCanvasContainer').offset().left + $('#argusCanvasContainer').scrollLeft();
-                    var localY = evt.pageY - $('#argusCanvasContainer').offset().top  + $('#argusCanvasContainer').scrollTop();
-
-                    var bbox = argusObj.edgeProvenanceHighlight.getBBox(); // bounding box
-                    
-                    if (Raphael.isPointInsideBBox( bbox, localX, localY )) {
-                        // false alarm, it's just moved over text or the node circle
-                        return;
-                    }
-
-                    // hide the edge highlight
-                    argusObj.edgeProvenanceHighlight.hide();
-                    break;
-                default:
-                    console.log('Unexpected value for hoverState (edge highlight): '+ hoverState);
-            }
-        };
-    }
     getClickHandlerNode = function (nodeID, domSource, nodeName) {
-        return function () {
-            argusObj.moveToNode({"nodeID": nodeID,
-                                 "domSource": domSource,
-                                 "nodeName": nodeName});
+        return function (e) {
+            /* Right-click ('contextmenu' event) should open a new window focused
+             * on this node; otherwise re-center the argus view in this window.
+             *
+             * N.B. Details on how a new window or tab appears depend on each browser,
+             * as well as popup blockers and user preferences!
+             */
+            switch (e.type) {
+                case 'contextmenu':
+                    var urlSafeNodeName = encodeURIComponent(nodeName);  
+                    var nodeURL = '/opentree/'+ domSource +'@'+ nodeID +'/'+ urlSafeNodeName;
+                    var newWindow = window.open( nodeURL, '_blank' );
+                    if (newWindow) {
+                        // if blocked by popup blocker, this is undefined
+                        newWindow.focus();
+                    }
+                    break;
+
+                case 'click':
+                default:
+                    argusObj.moveToNode({"nodeID": nodeID,
+                                         "domSource": domSource,
+                                         "nodeName": nodeName});
+            }
         };
     };
     getClickHandlerCluster = function (minimizedClusterParts, parentNodeID, clusterPosition, depthFromTargetNode, domSource, currentYoffset) {
@@ -835,6 +837,9 @@ function createArgus(spec) {
             var listBeforeCluster = parentNode.displayList.slice(0,dlPos);
             var listAfterCluster = parentNode.displayList.slice(dlPos + 1);
             parentNode.displayList = listBeforeCluster.concat( cluster.nodes, listAfterCluster );
+
+            // hide any stale highlight
+            argusObj.provenanceHighlight.hide();
 
             // redraw entire tree with changes
             argusObj.drawTree();
@@ -902,16 +907,31 @@ function createArgus(spec) {
                                  "domSource": nodeFromAJAX.source});
         };
     };
-    getClickHandlerNodeHighlight = function () {
-        return function () {
-            // use source-node values copied from the target node
-            showObjectProperties( argusObj.highlightedNodeInfo );
-        };
-    };
-    getClickHandlerEdgeHighlight = function () {
-        return function () {
-            // use source-node values copied from the target edge
-            showObjectProperties( argusObj.highlightedEdgeInfo );
+    getClickHandlerProvenanceHighlight = function () {
+        return function (e) {
+            /* Right-click ('contextmenu' event) should open a new window focused
+             * on this node; otherwise show this node's properties in the inspector.
+             * We'll use source-node values copied from the target node
+             *
+             * N.B. Details on how a new window or tab appears depend on each browser,
+             * as well as popup blockers and user preferences!
+             */
+            switch (e.type) {
+                case 'contextmenu':
+                    var info = argusObj.highlightedNodeInfo;
+                    var urlSafeNodeName = encodeURIComponent(info.nodeName);  
+                    var nodeURL = '/opentree/'+ info.domSource +'@'+ info.nodeID +'/'+ urlSafeNodeName;
+                    var newWindow = window.open( nodeURL, '_blank' );
+                    if (newWindow) {
+                        // if blocked by popup blocker, this is undefined
+                        newWindow.focus();
+                    }
+                    break;
+
+                case 'click':
+                default:
+                    showObjectProperties( argusObj.highlightedNodeInfo );
+            }
         };
     };
 
@@ -999,10 +1019,19 @@ function createArgus(spec) {
         if (node.isLocalLeafNode()) {
             node.r = node.isActualLeafNode() ? (this.minTipRadius * 0.7) : this.minTipRadius;
         } else {
-            node.r = this.minTipRadius + this.nodeDiamScalar * Math.log(node.nleaves);
+            node.r = this.minTipRadius + this.nodeDiamScalar * Math.log(node.nTipDescendants);
         }
-        var nodeFill = isTargetNode ? this.pathColor : 
-                                node.isActualLeafNode() ? this.bgColor : this.nodeColor;
+        var nodeFill = this.nodeColor; 
+        var nodeStroke = this.pathColor;
+        // override for special cases
+        if (node.isActualLeafNode()) {
+            nodeFill = this.actualLeafColor;
+            nodeStroke = this.bgColor;
+        } else if (node.isVisibleLeafNode()) {
+            nodeFill = this.visibleLeafColor;
+        } else if (isTargetNode) { 
+            // add special styles for this?
+        }
         if (circle) {
             // update the existing circle
             circle.attr({
@@ -1014,18 +1043,18 @@ function createArgus(spec) {
             circle = paper.circle( node.x, node.y, node.r).attr({
                             "fill": nodeFill,
                             "title": "Click to move to this node",
-                            "stroke": this.pathColor
+                            "stroke": nodeStroke
                          }).insertBefore(dividerBeforeAnchoredUI);
             circle.id = (nodeCircleElementID);
 
             // insert hover handler (node properties and navigation triggers)
-            circle.hover(getHoverHandlerNode('OVER', circle, {
+            circle.hover(getHoverHandlerNodeAndEdge('OVER', circle, {
                 "fill": this.nodeHoverColor
-            }), getHoverHandlerNode('OUT', circle, {
+            }), getHoverHandlerNodeAndEdge('OUT', circle, {
                 "fill": nodeFill
             }));
 
-            circle.click(getClickHandlerNode(node.nodeid, domSource, node.name));
+            $(circle.node).on('click contextmenu', getClickHandlerNode(node.nodeid, domSource, node.name));
             // copy source data into the circle element (for use by highlight)
             circle.data('sourceNodeInfo', {
                 'nodeID': node.nodeid,
@@ -1063,7 +1092,23 @@ function createArgus(spec) {
             });
         } else {
             // create the new label
-            label = paper.text(labelX, labelY, node.name).attr({
+            var displayLabel;
+            if (node.isLocalLeafNode()) {
+                // always show labels for leaf nodes (in this view)
+                displayLabel = node.name;
+            } else {
+                // hide synthetic/compound node labels for internal (in this view) nodes
+                var compoundNodeNameDelimiter = ' + ';
+                var compoundNodeNamePrefix = '[';
+                var compoundNodeNameSuffix = ']';
+                // N.B. this is determined using vars above, COPIED from treeview.js!
+                var isCompoundNodeName = ((typeof node.name === 'string') &&
+                                          (node.name.indexOf(compoundNodeNameDelimiter) !== -1) &&
+                                          (node.name.indexOf(compoundNodeNamePrefix) === 0) && 
+                                          (node.name.indexOf(compoundNodeNameSuffix) === (node.name.length -1)));
+                displayLabel = (isCompoundNodeName ? '' : node.name || '');
+            }
+            label = paper.text(labelX, labelY, displayLabel).attr({
                 'text-anchor': labelAnchor,
                 "fill": this.labelColor,
                 "font-size": fontSize
@@ -1100,13 +1145,14 @@ function createArgus(spec) {
                 supportedByPhylogeny = sb.length > (supportedByTaxonomy ? 1 : 0);
 
             if (supportedByTaxonomy && supportedByPhylogeny) {
+                //lineDashes = '--..';
                 lineDashes = '';
-                lineColor = this.pathColor;
+                lineColor = this.strongPathColor;
             } else if (supportedByPhylogeny){
                 lineDashes = '';
-                lineColor = this.pathColor;
+                lineColor = this.strongPathColor;
             } else if (supportedByTaxonomy){
-                lineDashes = '-';
+                lineDashes = '- ';
                 lineColor = this.pathColor;
             } else {
                 lineDashes = '--..';
@@ -1136,14 +1182,14 @@ function createArgus(spec) {
                 // ... and a congruent, visible path
                 visibleBranch = paper.path(branchSt).toBack().attr({
                     "stroke-width": 1,
-                    "stroke-linecap": (lineDashes === '.') ? 'butt' : 'round',      // avoids Chrome bug with dotted lines + round caps
+                    "stroke-linecap": (lineDashes === '.') || (lineDashes === '--..') || (lineDashes === '--.') ? 'butt' : 'round',      // avoids Chrome bug with dotted lines + round caps
                     "stroke-dasharray": lineDashes,
                     "stroke": lineColor          // this.pathColor
                 }).insertBefore(dividerBeforeLabels);
                 visibleBranch.id = (nodeVisibleBranchElementID);
                     
                 // assign hover behaviors
-                triggerBranch.hover(getHoverHandlerEdge('OVER', triggerBranch, {}), getHoverHandlerEdge('OUT', triggerBranch, {}));
+                triggerBranch.hover(getHoverHandlerNodeAndEdge('OVER', triggerBranch, {}), getHoverHandlerNodeAndEdge('OUT', triggerBranch, {}));
 
                 // copy node data into the path element (for use by highlight)
                 triggerBranch.data('sourceNodeInfo', {
@@ -1189,8 +1235,8 @@ function createArgus(spec) {
                         // create the new branch
                         branch = paper.path(upwardSt).toBack().attr({
                             "stroke": this.pathColor,
-                            "stroke-linecap": 'round',
-                            "stroke-dasharray": '- ',
+                            "stroke-linecap": 'butt', // REQUIRED if stroke-dasharray is '.'
+                            "stroke-dasharray": '. ',
                             "opacity": pathOpacity
                         }).insertBefore(dividerBeforeLabels);
                         branch.id = (nodeBranchElementID);
@@ -1220,7 +1266,7 @@ function createArgus(spec) {
                             }).insertBefore(dividerBeforeAnchoredUI);
                             circle.id = (nodeCircleElementID);
 
-                            label = paper.text(labelX, labelY, ancestorNode.name || "unnamed").attr({
+                            label = paper.text(labelX, labelY, ancestorNode.name || "").attr({
                                 'text-anchor': 'end',
                                 "fill": this.labelColor,
                                 "font-size": fontSize
@@ -1228,16 +1274,16 @@ function createArgus(spec) {
                             label.id = (nodeLabelElementID);
 
                             // add handlers and metadata
-                            circle.click(getClickHandlerNode(ancestorNode.nodeid, domSource, ancestorNode.name));
+                            $(circle.node).bind('click contextmenu', getClickHandlerNode(ancestorNode.nodeid, domSource, ancestorNode.name));
                             // copy source data into the circle element (for use by highlight)
                             circle.data('sourceNodeInfo', {
                                 'nodeID': ancestorNode.nodeid,
                                 'nodeName': ancestorNode.name,
                                 'domSource': domSource
                             });
-                            circle.hover(getHoverHandlerNode('OVER', circle, {
+                            circle.hover(getHoverHandlerNodeAndEdge('OVER', circle, {
                                 "fill": this.nodeHoverColor
-                            }), getHoverHandlerNode('OUT', circle, {
+                            }), getHoverHandlerNodeAndEdge('OUT', circle, {
                                 "fill": this.nodeColor
                             }));
                         }
@@ -1286,8 +1332,8 @@ function createArgus(spec) {
             // create the new path
             branch = paper.path(branchSt).toBack().attr({
                 "stroke-width": 1,
-                "stroke-linecap": 'round',
-                "stroke-dasharray": '-',
+                "stroke-linecap": 'butt', // REQUIRED if stroke-dasharray is '.'
+                "stroke-dasharray": '. ',
                 "stroke": this.pathColor
             }).insertBefore(dividerBeforeLabels);
             branch.id = (clusterBranchElementID);
@@ -1539,6 +1585,12 @@ function createArgus(spec) {
         // center the view on the target node
         $argusContainer.scrollTop((this.targetNodeY) - ($argusContainer.height() / 2));
 
+        // disable default right-click behavior in the argus view
+        $argusContainer.bind("contextmenu", function (e) { 
+            e.preventDefault();
+            return false; 
+        });
+
         // for each node found to have more than one parent
         for (i = 0; i < this.nodesWithCycles.length; i++) {
 
@@ -1713,8 +1765,8 @@ function alphaSortByName(a,b) {
     return 0;
 }
 function sortByDescendantCount(a,b) {
-    if (a.nleaves > b.leaves) return 1;
-    if (a.leaves < b.leaves) return -1;
+    if (a.nTipDescendants > b.nTipDescendants) return 1;
+    if (a.nTipDescendants < b.nTipDescendants) return -1;
     return 0;
 }
 
@@ -1744,6 +1796,9 @@ ArgusNode.prototype.isLocalLeafNode = function() {
     return (typeof this.children === 'undefined');
 };
 ArgusNode.prototype.isActualLeafNode = function() {
+    return this.nTipDescendants === 0;
+};
+ArgusNode.prototype.isVisibleLeafNode = function() {
     return this.hasChildren === false || this.nleaves === 0;
 };
 ArgusNode.prototype.updateDisplayBounds = function() {
@@ -1804,3 +1859,25 @@ ArgusCluster.prototype.updateDisplayBounds = function() {
     };
     return this.displayBounds;
 };
+
+function getClientBoundingBox( elementSet ) {
+    // Takes a RaphaelJS element set, reckons its full bounding box in
+    // page/client coordinates.
+    var bbox = {
+        x: Number.MAX_VALUE, 
+        y: Number.MAX_VALUE, 
+        x2: Number.MIN_VALUE, 
+        y2: Number.MIN_VALUE
+    };
+    elementSet.forEach(function(e) {
+        var el = e[0];
+        var rect = el.getBoundingClientRect();
+        bbox.x =  Math.min(bbox.x,  rect.left);
+        bbox.x2 = Math.max(bbox.x2, rect.right);
+        bbox.y =  Math.min(bbox.y,  rect.top);
+        bbox.y2 = Math.max(bbox.y2, rect.bottom);
+    });
+    bbox.width =  bbox.x2 - bbox.x;
+    bbox.height = bbox.y2 - bbox.y;
+    return bbox;
+}

@@ -1,24 +1,46 @@
 # -*- coding: utf-8 -*-
 import os
 from ConfigParser import SafeConfigParser
+import urllib2
+import json
 
 conf = SafeConfigParser({})
+config_file_found = None
 try:
-    if os.path.isfile("applications/%s/private/localconfig" % request.application):
-        conf.read("applications/%s/private/localconfig" % request.application)
-    else:
-        conf.read("applications/%s/private/config" % request.application)
+    test_config_paths = [
+        "applications/%s/private/localconfig" % request.application,
+        "applications/%s/private/config" % request.application,
+    ]
+    for test_path in test_config_paths:
+        if os.path.isfile(test_path):
+            config_file_found = test_path
+            conf.read(test_path)
+    assert 'apis' in conf.sections()
 except:
-    pass  #@TEMP probably should log this event...
+    print("\n=== WEB-APP CONFIG NOT FOUND, INVALID, OR INCOMPLETE ===")
+    if config_file_found == None:
+        err_msg = "Webapp config not found! Expecting it in one of these locations:\n  {}".format(test_config_paths)
+        print(err_msg)
+        raise Exception(err_msg)
+    err_msg = "Webapp config file ({}) is broken or incomplete (missing [apis] section)".format(config_file_found)
+    print(err_msg)
+    raise Exception(err_msg)
+
+# add our GitHub client secret from a separate file (kept out of source repo)
+if os.path.isfile("applications/%s/private/GITHUB_CLIENT_SECRET" % request.application):
+    GITHUB_CLIENT_SECRET = open("applications/%s/private/GITHUB_CLIENT_SECRET" % request.application).read().strip()
+    conf.set("apis", "github_client_secret", GITHUB_CLIENT_SECRET)
 
 #########################################################################
 ## This scaffolding model makes your app work on Google App Engine too
 ## File is released under public domain and you can use without limitations
 #########################################################################
 
-## if SSL/HTTPS is properly configured and you want all HTTP requests to
-## be redirected to HTTPS, uncomment the line below:
-# request.requires_https()
+# If SSL/HTTPS is properly configured and you want all HTTP requests to
+# be redirected to HTTPS, uncomment the line below:
+## request.requires_https()
+# NO, this is too all-inclusive and complicates our registered apps on GitHub.
+# (Its OAuth should work with either secure or insecure/test setups.)
 
 if not request.env.web2py_runtime_gae:
     ## if NOT running on Google App Engine use SQLite or other DB
@@ -50,12 +72,13 @@ response.generic_patterns = ['*'] if request.is_local else []
 ## (more options discussed in gluon/tools.py)
 #########################################################################
 
-from gluon.tools import Auth, Crud, Service, PluginManager, prettydate
-auth = Auth(db)
-crud, service, plugins = Crud(db), Service(), PluginManager()
+SECURE_SESSIONS_WITH_HTTPS = conf.getboolean("security", "secure_sessions_with_HTTPS")
+# This is set to 'true' during deployment if our wildcard cert file is found. We
+# assume this means all prerequisites for HTTPS/SSL are complete.
 
-## create all tables needed by auth if not custom tables
-auth.define_tables(username=False, signature=False)
+from gluon.tools import Auth, Crud, Service, PluginManager, prettydate
+auth = Auth(db, secure=SECURE_SESSIONS_WITH_HTTPS)
+crud, service, plugins = Crud(db), Service(), PluginManager()
 
 ## configure email
 mail = auth.settings.mailer
@@ -74,30 +97,151 @@ plugins.wiki.level = 3
 plugins.wiki.mode = 'html' # OR 'markmin', others?
 # plugins.wiki.theme = 'ui-darkness'
 
-## if you need to use OpenID, Facebook, MySpace, Twitter, Linkedin, etc.
-## register with janrain.com, write your domain:api_key in private/janrain.key
-#from gluon.contrib.login_methods.rpx_account import use_janrain
-#use_janrain(auth, filename='private/janrain.key')
+#
+# OAuth2 for Github (API v3), based on the FB sample provided in gluon/contrib/login_methods/oauth20_account.py
+# 
+
+# You need to override the get_user method to match your auth provider needs.
+# define the auth_table before call to auth.define_tables()
+auth_table = db.define_table(
+   auth.settings.table_user_name,
+   Field('name', length=256, default=""),          # "Charles Darwin"
+   Field('email', length=128, default=""),         # "chuck@beagle.net"
+   Field('github_login', length=128, default=""),  # "chuckd"  [Github calls this 'login']
+   Field('github_url', length=256, default=""),    # "https://github.com/chuckd"  [Github calls this 'html_url']
+   Field('avatar_url', length=256, default=""),    # "http://0.gravatar.com/avatar/805...9689b.png"
+   #Field('password', 'password', length=256, readable=False, label='Password'),
+   Field('github_auth_token', length=128, default= "", writable=False, readable=False),
+
+   ## Some fields are expected by web2py, so repeat some values above..?
+   Field('first_name', length=128, default=""),
+   Field('last_name', length=128, default=""),
+   Field('username', length=128, default="", ),  # unique=True not allowed in sqlite3
+   Field('password', 'password', length=256, readable=False, label='Password'),
+   Field('registration_key', length=128, default= "", writable=False, readable=False),
+   )
+   # is there another 'auth_token' field here already?
+
+auth_table.github_login.requires = IS_NOT_IN_DB(db, auth_table.github_login)
+auth.define_tables()
+# OR auth.define_tables(username=False, signature=False)
+# see https://code.google.com/p/web2py/issues/detail?id=1260
+
+# Looking for your app's client ID and secret in {app}/private/config
 try:
-    janrain_api_key = open("applications/%s/private/janrain.key" % request.application).read().strip();
-except:
-    janrain_api_key=''
-try:
-    host = conf.get("hosting", "hostdomain")
-except:
-    host = "localhost:8000"
+    CLIENT_ID = conf.get("apis", "github_client_id")
+    CLIENT_SECRET = conf.get("apis", "github_client_secret")
+    REDIRECT_URI = conf.get("apis", "github_redirect_uri")
+except: 
+    CLIENT_ID = "CLIENT_ID_NOT_FOUND"
+    CLIENT_SECRET = "CLIENT_SECRET_NOT_FOUND"
+    REDIRECT_URI = "REDIRECT_URI_NOT_FOUND"
+
+AUTH_URL="http://..."
+TOKEN_URL="http://..."
 
 
-from gluon.contrib.login_methods.rpx_account import RPXAccount
-auth.settings.actions_disabled=['register','change_password','request_reset_password']
-auth.settings.login_form = RPXAccount(
-    request, api_key=janrain_api_key,
-    domain='opentree',
-    url = "http://%s/%s/default/user/login" % (host, request.application)
-    )
+from gluon import current
+from gluon.contrib.login_methods.oauth20_account import OAuthAccount
+class GitHubAccount(OAuthAccount):
+    '''OAuth impl for GitHub'''
+    # http://developer.github.com/v3/oauth/
+    AUTH_URL="https://github.com/login/oauth/authorize"
+    TOKEN_URL="https://github.com/login/oauth/access_token"
+
+    def __init__(self):
+        OAuthAccount.__init__(self, 
+                              g=globals(),
+                              client_id=CLIENT_ID,
+                              client_secret=CLIENT_SECRET,
+                              auth_url=self.AUTH_URL,
+                              token_url=self.TOKEN_URL,
+                              redirect_uri=REDIRECT_URI,
+                              state=os.urandom(16).encode('hex'),
+                                  # random string to detect cross-site request forgery
+                              scope='public_repo')  # add ',repo' if including private repos
+
+        # adding session here, since older OAuthAccount doesn't seem to have it.. :-/
+        self.session = globals()['session']
+
+    def get_user(self):
+        '''Returns the user using the GitHub User API.'''
+        ##sys.stderr.write('get_user STARTING...\n')
+        access_token = self.accessToken()
+        if not access_token:
+            ##sys.stderr.write('get_user NO TOKEN FOUND\n')
+            return None
+         
+        ##sys.stderr.write('get_user FOUND access_token:\n')
+        ##pprint(access_token)
+
+        ##sys.stderr.write('> get_user, finishing with this CURRENT.session.token:\n')
+        ##pprint(current.session.token)
+        ##sys.stderr.write('> get_user, trying SELF.session.token:\n')
+        ##pprint(self.session.token)
+        ##sys.stderr.write('> what about just session.token?\n')
+        ##pprint(session.token)
+
+        # fetch full user info from GitHub, to add/update user data
+        user_request = urllib2.Request("https://api.github.com/user", headers={"Authorization" : ("token %s" % access_token)})
+        data = urllib2.urlopen(user_request).read()
+        user_json = {}
+        try:
+            user_json = json.loads(data)
+        except Exception, e:
+            raise Exception("Cannot parse oauth server response %s %s" % (data, e))
+            return None
+
+        ##pprint('----------- user_json ----------')
+        ##pprint(user_json)
+        ##pprint('----------- auth_user_fields ----------')
+
+        # remap to our chosen auth_user fields
+        auth_user_fields = dict(name = user_json.get('name', user_json['login']),
+                                email = user_json.get('email', 'EMAIL_NOT_PROVIDED'),
+                                github_login = user_json['login'],
+                                registration_id = user_json['login'],
+                                #   required? see https://groups.google.com/forum/#!topic/web2py/yd4_yExPwXg/discussion
+                                github_url = user_json['html_url'],
+                                avatar_url = user_json['avatar_url'],
+                                github_auth_token = access_token,
+                                #   adding more (apparently) standard web2py fields, to make this work..
+                                first_name = user_json['login'],
+                                last_name = ("(%s)" % user_json.get('name', user_json['login'])),
+                                username = user_json['login'],
+                                #password = 'TOP-SECRET',
+                                registration_key = user_json['login'],  
+                                )
+
+        ##pprint(auth_user_fields)
+        ##pprint('--------------------------------')
+
+        return dict(auth_user_fields)
+
+
+# use the class above to build a new login form
+auth.settings.login_form=GitHubAccount()
+
+# specify which auth_user fields can be modified on SECOND and subsequent logins
+auth.settings.update_fields = ['name', 
+                               'email', 
+                               'github_login', 
+                               #'registration_id', 
+                               'github_url', 
+                               'avatar_url', 
+                               'github_auth_token', 
+                               'first_name', 
+                               'last_name', 
+                               'username', 
+                               #'password', 
+                               'registration_key']
+
+# there's no point in offer other user-management actions (we just shadow users in GitHub)
+auth.settings.actions_disabled=['register', 'change_password','request_reset_password','profile']
 
 if request.controller=='default' and request.function=='user' and request.args(0)=='login':
-    auth.settings.login_next = session._next or URL('index')
+    last_location = request.get('env').get('http_referer')
+    auth.settings.login_next = last_location or URL('index')
 else:
     session._next = request.env.path_info
 

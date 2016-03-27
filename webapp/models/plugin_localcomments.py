@@ -29,6 +29,8 @@ db.define_table('plugin_localcomments_comment',
                 Field('body','text'),
                 Field('deleted','boolean',default=False,readable=False,writable=False),
                 Field('feedback_type','text'),
+                # Require a reference URL for reporting errors in phylogeny
+                Field('reference_url',length=2000), # max safe length for URLs (across browsers)
                 Field('claimed_expertise','boolean',default=False,readable=False,writable=False),
                 Field('votes','integer',default=0,readable=False,writable=False),
                 Field('created_by',db.auth_user,default=auth.user_id,readable=False,writable=False),  # OR 'reference auth_user'
@@ -42,13 +44,13 @@ db.plugin_localcomments_comment.created_by.requires = IS_NOT_EMPTY()
 #db.plugin_localcomments_comment.email.requires = IS_EMAIL()
 
 # simplify embedding in a page template
-def plugin_localcomments(filter='synthtree_id,synthtree_node',url='',synthtree_id='',synthtree_node_id='',sourcetree_id='',sourcetree_node_id='',ottol_id='',parent_id=None):
+def plugin_localcomments(filter='skip_comments',url='',synthtree_id='',synthtree_node_id='',sourcetree_id='',ottol_id='',target_node_label='',parent_id=None):
     return LOAD('plugin_localcomments',vars=dict(
         filter=filter,  # show messages matching on these fields
         url=url, 
         synthtree_id=synthtree_id, 
         synthtree_node_id=synthtree_node_id, 
         sourcetree_id=sourcetree_id, 
-        sourcetree_node_id=sourcetree_node_id, 
         ottol_id=ottol_id, 
+        target_node_label=target_node_label, 
         thread_parent_id=parent_id))

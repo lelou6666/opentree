@@ -1,16 +1,15 @@
 opentree
 ========
 
-Umbrella repo for opentree web site and services. Includes code for constructing the synthetic taxonomy.
+This is the repository for the Open Tree of Life web applications, one of many subsystems making up the Open Tree of Life project code.
 
-[![Visit our IRC channel](https://kiwiirc.com/buttons/irc.freenode.net/opentreeoflife.png)](https://kiwiirc.com/client/irc.freenode.net/?nick=guest|?#opentreeoflife)
+For Open Tree of Life documentation, see [the germinator repository's wiki](https://github.com/OpenTreeOfLife/germinator/wiki). The 'deployment system' and web API documentation sources that formerly resided in this repository now live in the [germinator repository](https://github.com/OpenTreeOfLife/germinator).
 
-We maintain the #opentreeoflife chat (IRC) channel on [Freenode](http://freenode.net/). Clicking the button above will join the channel as user __guest__, using the web-based [KiwiIRC](https://kiwiirc.com/) client. It is a [logged](http://irclog.perlgeek.de/opentreeoflife/today) channel.
-
+The following instructions have not been reviewed in a long time. For local installation a better place to start might be [this wiki page](https://github.com/OpenTreeOfLife/opentree/wiki/Installing-a-local-curator-and-tree-browser-test-server).
 
 Installation
 ============
-Instructions coming soon. In the meantime, see the phylografter instructions for
+See the phylografter instructions for
 more details about using web2py.
 
 We strongly recommend using a virtual environment to manage the version of
@@ -53,40 +52,86 @@ Briefly:
 1. Download and unpack the source code version of web2py from 
 http://www.web2py.com/examples/default/download MTH used version 2.4.2 of web2py
 
-NOTE: This version of web2py includes basic support for OAuth 2.0, but it needs a minor patch to support for login via the GitHub API v3.
-(This is used for the curation UI, which uses GitHub for its datastore and attribution.) Replace this web2py file with a modified version in the same folder as this README:
-<pre>
-{web2py-2.4.4}/gluon/contrib/login_methods/oauth20_account.py
-</pre>
+   NOTE: This version of web2py includes basic support for OAuth 2.0, but it needs
+   a minor patch to support for login via the GitHub API v3.  (The curation app
+   uses GitHub for its datastore and attribution. The tree browser also uses it
+   for its issue tracker, with optional authentication for convenience.) Replace
+   this web2py file with a modified version in the same folder as this README:
+   <pre>
+   {web2py-2.4.4}/gluon/contrib/login_methods/oauth20_account.py
+   </pre>
 
 2. Create the sym links for the main web app and the study curation tool.
 
-<pre>
-cd web2py/applications
-ln -s /full/path/to/opentree/webapp opentree
-ln -s /full/path/to/opentree/curator curator
-</pre>
+   <pre>
+   cd web2py/applications
+   ln -s /full/path/to/opentree/webapp opentree
+   ln -s /full/path/to/opentree/curator curator
+   </pre>
 
 3. Customize web2py's site-wide routing behavior using "SITE.routes.py"
 
-<pre>
-# return to main web2py directory
-cd ..  
-cp /full/path/to/opentree/SITE.routes.py routes.py
-</pre>
-
-This routing file works in tandem with the opentree app router and lets us have
-proper URLs with hyphens instead of underscores.
+   <pre>
+   # return to main web2py directory
+   cd ..  
+   cp /full/path/to/opentree/SITE.routes.py routes.py
+   </pre>
+   
+   This routing file works in tandem with the opentree app router and lets us have
+   proper URLs with hyphens instead of underscores.
 
 4. Launch web2py
 
-<pre>
-cd /full/path/to/web2py
-python web2py.py --nogui -a '&lt;recycle&gt;'
-</pre>
+   <pre>
+   cd /full/path/to/web2py
+   python web2py.py --nogui -a '&lt;recycle&gt;'
+   </pre>
+   
+   Where the -a flag is allowing you to reuse the previous admin password that you used
+   with this instance of web2py.
 
-Where the -a flag is allowing you to reuse the previous admin password that you used
-with this instance of web2py.
+   **To test with login and proper domain name**, modify your test system's
+   `/etc/hosts` file (or equivalent) to resolve the domain `devtree.opentreeoflife.org`
+   to localhost (127.0.0.1). Then run web2py on (privileged) port 80 like so:
+
+   <pre>
+   cd /full/path/to/web2py
+   sudo python web2py.py --nogui -p 80 -a '&lt;recycle&gt;'
+   </pre>
+
+   **To test with local HTTPS**, modify your test system's
+   `/etc/hosts` file as described above, then use a [web2py options file]() to
+   support HTTP traffic on port 80 and HTTPS on port 443. This requires working
+   key and cert files.
+   to localhost (127.0.0.1). Then run web2py on (privileged) port 80 like so:
+
+   <pre>
+   cd /full/path/to/web2py
+   sudo python web2py.py --verbose -L multiport_options.py
+   </pre>
+
+   This looks for the options file `multiport_options.py` in the same
+   directory as `web2py.py`, with contents something like this:
+   <pre>
+   import os 
+   interfaces = [(
+                    '0.0.0.0',
+                    80
+                 ),
+                 (
+                    '0.0.0.0',
+                    443,
+                    '/Volumes/SecureFiles/.ssh/opentree/ssl-keys/opentreeoflife.org.key',
+                    '/Volumes/SecureFiles/.ssh/opentree/ssl-keys/STAR_opentreeoflife_org.crt'
+                 )]
+   password = '<recycle>' 
+   pid_filename = 'httpserver.pid' 
+   log_filename = 'httpserver.log' 
+   folder = os.getcwd() 
+   </pre>
+
+   Now you should be able to use production domain names, secure connections,
+   and OAuth as in the production setup.
 
 Subdirectories
 --------------

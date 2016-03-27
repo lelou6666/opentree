@@ -7,23 +7,42 @@ import urllib2
 import json
 
 conf = SafeConfigParser({})
+config_file_found = None
 try:
-    if os.path.isfile("applications/%s/private/localconfig" % request.application):
-        conf.read("applications/%s/private/localconfig" % request.application)
-    else:
-        conf.read("applications/%s/private/config" % request.application)
+    test_config_paths = [
+        "applications/%s/private/localconfig" % request.application,
+        "applications/%s/private/config" % request.application,
+    ]
+    for test_path in test_config_paths:
+        if os.path.isfile(test_path):
+            config_file_found = test_path
+            conf.read(test_path)
+    assert 'apis' in conf.sections()
 except:
-    pass  #@TEMP probably should log this event...
+    print("\n=== WEB-APP CONFIG NOT FOUND, INVALID, OR INCOMPLETE ===")
+    if config_file_found == None:
+        err_msg = "Webapp config not found! Expecting it in one of these locations:\n  {}".format(test_config_paths)
+        print(err_msg)
+        raise Exception(err_msg)
+    err_msg = "Webapp config file ({}) is broken or incomplete (missing [apis] section)".format(config_file_found)
+    print(err_msg)
+    raise Exception(err_msg)
 
+# add our GitHub client secret from a separate file (kept out of source repo)
+if os.path.isfile("applications/%s/private/GITHUB_CLIENT_SECRET" % request.application):
+    GITHUB_CLIENT_SECRET = open("applications/%s/private/GITHUB_CLIENT_SECRET" % request.application).read().strip()
+    conf.set("apis", "github_client_secret", GITHUB_CLIENT_SECRET)
 
 #########################################################################
 ## This scaffolding model makes your app work on Google App Engine too
 ## File is released under public domain and you can use without limitations
 #########################################################################
 
-## if SSL/HTTPS is properly configured and you want all HTTP requests to
-## be redirected to HTTPS, uncomment the line below:
-# request.requires_https()
+# If SSL/HTTPS is properly configured and you want all HTTP requests to
+# be redirected to HTTPS, uncomment the line below:
+## request.requires_https()
+# NO, this is too all-inclusive and complicates our registered apps on GitHub.
+# (Its OAuth should work with either secure or insecure/test setups.)
 
 if not request.env.web2py_runtime_gae:
     ## if NOT running on Google App Engine use SQLite or other DB
@@ -55,8 +74,12 @@ response.generic_patterns = ['*'] if request.is_local else []
 ## (more options discussed in gluon/tools.py)
 #########################################################################
 
+SECURE_SESSIONS_WITH_HTTPS = conf.getboolean("security", "secure_sessions_with_HTTPS")
+# This is set to 'true' during deployment if our wildcard cert file is found. We
+# assume this means all prerequisites for HTTPS/SSL are complete.
+
 from gluon.tools import Auth, Crud, Service, PluginManager, prettydate
-auth = Auth(db)
+auth = Auth(db, secure=SECURE_SESSIONS_WITH_HTTPS)
 crud, service, plugins = Crud(db), Service(), PluginManager()
 
 
@@ -232,11 +255,6 @@ mail.settings.login = 'username:password'
 auth.settings.registration_requires_verification = False
 auth.settings.registration_requires_approval = False
 auth.settings.reset_password_requires_verification = True
-
-## if you need to use OpenID, Facebook, MySpace, Twitter, Linkedin, etc.
-## register with janrain.com, write your domain:api_key in private/janrain.key
-from gluon.contrib.login_methods.rpx_account import use_janrain
-use_janrain(auth, filename='private/janrain.key')
 
 #########################################################################
 ## Define your tables below (or better in another model file) for example

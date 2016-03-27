@@ -95,18 +95,22 @@
                   onclick="toggleCommentsPanel(); $(this).blur(); return false;">
                    <span id="comment-count">0</span>
                    <i class="icon-comment icon-white"></i>
+                   <span class="hidden-phone widget-prompt"> Show comments</span>
                </a>
-               <span class="hidden-phone widget-prompt"> Show comments</span>
               </span><!-- .comments-indicator -->
               
+              <span class="legend-widget">
+                  <a class="badge" onclick="toggleTreeViewLegend(); $(this).blur(); return false;">Legend</a>
+              </span>
+
               <span class="zoom-widget">
-               <span class="hidden-phone widget-prompt">Zoom tree view </span>
                <span class="badge"
                    title="Magnify tree view"
                    onclick="return false;"
                    >
                    <a href="#"
                       onclick="(argus.getZoomInHandler())(); $(this).blur(); return false;" >
+                      <span class="hidden-phone widget-prompt">Zoom tree view &nbsp;</span>
                       <i class="icon-plus icon-white" style="margin-right: 8px;" ></i>
                    </a>
                    <span style="color: #ccc;">|</span>
@@ -127,11 +131,11 @@
 
               <span class="properties-indicator"
                     style="float: right; margin-right: 4px;">
-               <span class="hidden-phone widget-prompt">Show properties </span>
                <a class="badge" href="#" 
                   title="Show properties for the current selection"
                   onclick="togglePropertiesPanel(); $(this).blur(); return false;">
                    <i class="icon-info-sign icon-white"></i>
+                   <span class="hidden-phone widget-prompt">Show properties </span>
                </a>
               </span><!-- .properties-indicator -->
            </div>
@@ -149,7 +153,7 @@
                    # (this will probably be overwritten by tree-view data)
                    url = request.url
                }}
-               {{=plugin_localcomments(filter=('url',),url=url)}}
+               {{=plugin_localcomments(filter='skip_comments',url=url)}}
              </div>
             </div>
            </div>
@@ -193,3 +197,78 @@
   </script>
   <script type="text/javascript" src="/opentree/static/js/treeview.js"></script>
 </script>
+
+<!-- hidden template for argus (tree-viewer) legend -->
+<div class="modal hide fade" id="tree-view-legend" style="display: none;">
+    <div class="modal-header">
+      <a data-dismiss="modal" class="close">×</a>
+      <h3 id='dialog-heading'>
+         Tree view legend
+      </h3>
+    </div>
+    <div class="modal-body">
+      <div class="legend-pane">
+       <table>
+        <tr>
+         <td align="right">
+            Node size reflects number of descendants
+         </td>
+         <td>
+          <img src="{{=URL('static','images/tree-view-node-sizes.png')}}" alt="outgroup style" />
+         </td>
+        </tr>
+        <tr>
+         <td align="right">
+            Nearest ancestors of current node
+         </td>
+         <td>
+          <img src="{{=URL('static','images/tree-view-ancestors.png')}}" alt="outgroup style" />
+         </td>
+        </tr>
+        <tr>
+         <td align="right">
+            Hollow tips may have more descendants
+         </td>
+         <td>
+          <img src="{{=URL('static','images/tree-view-tips.png')}}" alt="outgroup style" />
+         </td>
+        </tr>
+        <tr>
+         <td align="right">
+            Paths supported by phylogeny
+         </td>
+         <td>
+          <img src="{{=URL('static','images/tree-view-solid-paths.png')}}" alt="outgroup style" />
+         </td>
+        </tr>
+        <tr>
+         <td align="right">
+            Paths supported only by taxonomy
+         </td>
+         <td>
+          <img src="{{=URL('static','images/tree-view-dotted-paths.png')}}" alt="outgroup style" />
+         </td>
+        </tr>
+        <tr>
+         <td align="right">
+            Mouse-over hint (click to see node and edge properties)
+         </td>
+         <td>
+          <img src="{{=URL('static','images/tree-view-node-info.png')}}" alt="outgroup style" />
+         </td>
+        </tr>
+        <tr>
+         <td align="right">
+            New target node (click to jump to it)
+         </td>
+         <td>
+          <img src="{{=URL('static','images/tree-view-node-jump.png')}}" alt="outgroup style" />
+         </td>
+        </tr>
+       </table>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <a data-dismiss="modal" class="btn" >Close</a>
+    </div>
+</div>
